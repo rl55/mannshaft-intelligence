@@ -1,0 +1,53 @@
+# SaaS BI Agent System - Python Dependencies
+# Python 3.11+
+
+# Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+
+# Data Validation
+pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Google AI & APIs
+google-generativeai==0.3.2
+google-auth==2.27.0
+google-auth-oauthlib==1.2.0
+google-auth-httplib2==0.2.0
+
+# Google Sheets Integration
+gspread==6.0.0
+
+# HTTP Client
+aiohttp==3.9.1
+httpx==0.25.2
+
+# Configuration
+python-dotenv==1.0.0
+pyyaml==6.0.1
+
+# Database (SQLite is built-in to Python)
+# Using built-in sqlite3 module
+
+# Async Support
+asyncio==3.4.3
+
+# Logging & Monitoring
+python-json-logger==2.0.7
+
+# Testing (Optional - Development)
+pytest==7.4.3
+pytest-asyncio==0.21.1
+pytest-cov==4.1.0
+httpx==0.25.2  # For testing FastAPI
+
+# Code Quality (Optional - Development)
+black==23.12.1
+flake8==7.0.0
+mypy==1.8.0
+isort==5.13.2
+
+# Documentation (Optional)
+mkdocs==1.5.3
+mkdocs-material==9.5.3

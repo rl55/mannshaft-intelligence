@@ -1,0 +1,179 @@
+# SaaS BI Agent System Configuration
+
+# Application Settings
+app:
+  name: "SaaS BI Agent"
+  version: "1.0.0"
+  environment: "development"  # development, staging, production
+  debug: true
+
+# API Server Configuration
+api:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 4
+  reload: true  # Only for development
+  log_level: "info"
+  cors_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8000"
+  max_request_size: 10485760  # 10MB
+
+# Database Configuration
+database:
+  path: "data/agent_cache.db"
+  schema_path: "data/schema.sql"
+  connection_timeout: 30
+  enable_wal_mode: true
+
+# Cache Configuration
+cache:
+  prompt_ttl_hours: 168  # 7 days
+  agent_response_ttl_hours: 24  # 24 hours
+  cleanup_interval_hours: 6
+  max_cache_size_mb: 1000
+
+# Google Gemini Configuration
+gemini:
+  model: "gemini-2.0-flash-exp"
+  fallback_model: "gemini-1.5-flash"
+  temperature: 0.1
+  top_p: 0.95
+  top_k: 40
+  max_output_tokens: 8192
+  safety_settings:
+    harassment: "block_none"
+    hate_speech: "block_none"
+    sexually_explicit: "block_none"
+    dangerous_content: "block_none"
+
+# Google Sheets Integration (MCP)
+google_sheets:
+  enabled: true
+  credentials_path: ".credentials/google_credentials.json"
+  scopes:
+    - "https://www.googleapis.com/auth/spreadsheets.readonly"
+    - "https://www.googleapis.com/auth/drive.readonly"
+  timeout_seconds: 30
+
+# Agent Configuration
+agents:
+  orchestrator:
+    max_parallel_agents: 3
+    timeout_seconds: 120
+    retry_attempts: 2
+
+  revenue:
+    enabled: true
+    confidence_threshold: 0.7
+    max_data_points: 1000
+
+  product:
+    enabled: true
+    confidence_threshold: 0.7
+    max_data_points: 1000
+
+  support:
+    enabled: true
+    confidence_threshold: 0.7
+    max_data_points: 1000
+
+  synthesizer:
+    enabled: true
+    min_agent_responses: 2
+    synthesis_model: "gemini-2.0-flash-exp"
+
+# Governance & Guardrails
+governance:
+  enable_guardrails: true
+  enable_evaluation: true
+  enable_hitl: true
+
+  # Hard Guardrails (Always enforced)
+  hard_guardrails:
+    - name: "pii_detection"
+      enabled: true
+      action: "block"
+
+    - name: "data_range_validation"
+      enabled: true
+      action: "block"
+
+    - name: "hallucination_prevention"
+      enabled: true
+      action: "escalate"
+
+  # Adaptive Guardrails (Learn from feedback)
+  adaptive_guardrails:
+    enabled: true
+    learning_rate: 0.1
+    min_confidence: 0.8
+
+  # HITL Configuration
+  hitl:
+    enabled: true
+    timeout_minutes: 30
+    escalation_threshold: 0.6
+    auto_approve_above: 0.95
+
+  # Evaluation Thresholds
+  evaluation:
+    factual_grounding_min: 0.8
+    relevance_min: 0.75
+    completeness_min: 0.7
+    coherence_min: 0.8
+    overall_quality_threshold: "good"
+
+# Observability
+observability:
+  enable_tracing: true
+  enable_metrics: true
+  enable_error_logging: true
+  trace_sampling_rate: 1.0  # 100% in dev, lower in prod
+
+  # Metrics Collection
+  metrics:
+    collection_interval_seconds: 60
+    retention_days: 30
+
+  # Error Logging
+  error_logging:
+    retention_days: 90
+    severity_levels:
+      - "low"
+      - "medium"
+      - "high"
+      - "critical"
+
+# Session Management
+sessions:
+  default_timeout_minutes: 60
+  max_concurrent_sessions: 100
+  cleanup_interval_hours: 1
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  format: "json"  # json or text
+  output: "stdout"  # stdout, file, both
+  file_path: "logs/agent_system.log"
+  max_file_size_mb: 100
+  backup_count: 5
+  include_trace_id: true
+  include_session_id: true
+
+# Security
+security:
+  api_key_header: "X-API-Key"
+  enable_rate_limiting: true
+  rate_limit_per_minute: 60
+  enable_request_validation: true
+  sanitize_inputs: true
+
+# Feature Flags
+features:
+  enable_async_agents: true
+  enable_streaming_responses: false
+  enable_web_search: false
+  enable_code_execution: false
+  enable_advanced_analytics: true
