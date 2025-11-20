@@ -18,7 +18,7 @@ from agents.product_agent import ProductAgent
 from agents.support_agent import SupportAgent
 from agents.synthesizer_agent import SynthesizerAgent
 from cache.cache_manager import CacheManager
-from governance.guardrails import Guardrails, ViolationSeverity
+from governance.guardrails import Guardrails, GuardrailAgent, ViolationSeverity
 from governance.evaluation import Evaluator
 from governance.hitl_manager import HITLManager, HITLStatus
 from utils.config import config
@@ -110,6 +110,7 @@ class OrchestratorAgent:
             schema_path=config.get('database.schema_path', 'data/schema.sql')
         )
         self.guardrails = guardrails or Guardrails()
+        self.guardrail_agent = GuardrailAgent(self.cache_manager)  # Comprehensive guardrail agent
         self.evaluator = evaluator or Evaluator()
         self.hitl_manager = hitl_manager or HITLManager(self.cache_manager)
         
@@ -545,7 +546,7 @@ class OrchestratorAgent:
         session_id: str
     ) -> List[Dict[str, Any]]:
         """
-        Apply guardrails to synthesized response.
+        Apply guardrails to synthesized response using comprehensive GuardrailAgent.
         
         Args:
             response: Synthesized response
@@ -559,32 +560,57 @@ class OrchestratorAgent:
         
         self.logger.info("Applying guardrails")
         
-        violations = self.guardrails.validate(
-            agent_type='synthesizer',
-            response=response,
-            trace_id=None  # Could extract from response if available
-        )
-        
-        # Log violations to cache manager
-        for violation in violations:
-            self.cache_manager.log_guardrail_violation(
-                trace_id=None,  # Could extract from response
+        # Use comprehensive GuardrailAgent for synthesizer output
+        try:
+            guardrail_result = self.guardrail_agent.evaluate(
+                insights=response,
+                session_id=session_id,
+                trace_id=None  # Could extract from response if available
+            )
+            
+            # Convert violations to dict format for compatibility
+            violations = [
+                {
+                    'rule_name': v.rule_name,
+                    'rule_type': v.rule_type,
+                    'severity': v.severity,
+                    'details': v.details,
+                    'reasoning': v.reasoning
+                }
+                for v in guardrail_result.violations
+            ]
+            
+            # Log action taken
+            if guardrail_result.action == 'block':
+                self.logger.error(
+                    f"Guardrails BLOCKED response: {guardrail_result.reasoning}",
+                    extra={'violations': violations, 'risk_score': guardrail_result.risk_score}
+                )
+            elif guardrail_result.action == 'escalate_hitl':
+                self.logger.warning(
+                    f"Guardrails ESCALATED to HITL: {guardrail_result.reasoning}",
+                    extra={'hitl_request_id': guardrail_result.hitl_request_id}
+                )
+            elif guardrail_result.action == 'warn':
+                self.logger.warning(
+                    f"Guardrails WARNING: {guardrail_result.reasoning}",
+                    extra={'violations': violations}
+                )
+            
+            return violations
+            
+        except Exception as e:
+            self.logger.error(
+                f"Error applying guardrails: {e}",
+                exc_info=True
+            )
+            # Fallback to simple guardrails
+            violations = self.guardrails.validate(
                 agent_type='synthesizer',
-                rule_type=violation['rule_type'],
-                rule_name=violation['rule_name'],
-                violation_severity=violation['severity'],
-                violation_details=violation['details'],
-                action_taken='escalated' if violation['severity'] in ['high', 'critical'] else 'allowed',
-                human_review_required=violation['severity'] in ['high', 'critical']
+                response=response,
+                trace_id=None
             )
-        
-        if violations:
-            self.logger.warning(
-                f"Found {len(violations)} guardrail violations",
-                extra={'violations': violations}
-            )
-        
-        return violations
+            return violations
     
     async def _handle_hitl_escalations(
         self,
