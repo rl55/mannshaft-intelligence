@@ -72,3 +72,11 @@ monitoring:
   tracing_enabled: true
   error_tracking_enabled: true
 
+# Synthesizer Configuration
+synthesizer:
+  enable_external_validation: true
+
+# Google Search Configuration (Optional)
+google_search:
+  api_key: "${GOOGLE_SEARCH_API_KEY}"  # Optional: Google Custom Search API key
+  cx: "${GOOGLE_SEARCH_CX}"  # Optional: Custom Search Engine ID
