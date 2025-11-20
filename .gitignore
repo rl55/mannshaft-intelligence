@@ -59,3 +59,7 @@ Thumbs.db
 *.pyc
 .pytest_cache/
 
+# Credentials (service account JSON files)
+credentials/*.json
+credentials/*.key
+
