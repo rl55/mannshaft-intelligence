@@ -1,0 +1,33 @@
+{
+  "revenue_analysis": {
+    "text": "{\"agent_id\": \"revenue_agent_001\", \"agent_type\": \"revenue\", \"timestamp\": \"2024-01-01T00:00:00Z\", \"confidence\": 0.92, \"confidence_reasoning\": \"High data quality with complete historical data\", \"analysis\": {\"mrr_analysis\": {\"current_mrr\": 100000, \"wow_growth_rate\": 0.01, \"mom_growth_rate\": 0.05, \"trend\": \"accelerating\"}, \"churn_analysis\": {\"current_churn_rate\": 0.01, \"change_from_previous\": -0.005, \"severity\": \"low\"}, \"key_insights\": [\"MRR showing steady growth\", \"Churn rate decreasing\"], \"recommendations\": [\"Continue current growth strategy\", \"Focus on retention\"]}, \"data_citations\": [\"Revenue Metrics!A1:G100\"]}",
+    "tokens_input": 200,
+    "tokens_output": 150
+  },
+  "product_analysis": {
+    "text": "{\"agent_id\": \"product_agent_001\", \"agent_type\": \"product\", \"timestamp\": \"2024-01-01T00:00:00Z\", \"confidence\": 0.88, \"confidence_reasoning\": \"Good data coverage\", \"analysis\": {\"dau\": 5000, \"wau\": 15000, \"mau\": 50000, \"feature_adoption\": {\"feature_a\": 0.75}, \"key_insights\": [\"DAU stable\", \"Feature adoption increasing\"], \"recommendations\": [\"Promote feature B\", \"Improve activation\"]}, \"data_citations\": [\"Product Metrics!A1:F100\"]}",
+    "tokens_input": 180,
+    "tokens_output": 120
+  },
+  "support_analysis": {
+    "text": "{\"agent_id\": \"support_agent_001\", \"agent_type\": \"support\", \"timestamp\": \"2024-01-01T00:00:00Z\", \"confidence\": 0.85, \"confidence_reasoning\": \"Adequate data\", \"analysis\": {\"ticket_volume\": 150, \"average_response_time_hours\": 2.5, \"csat_score\": 4.2, \"key_insights\": [\"Ticket volume normal\", \"CSAT improving\"], \"recommendations\": [\"Maintain response times\", \"Focus on technical tickets\"]}, \"data_citations\": [\"Support Tickets!A1:E100\"]}",
+    "tokens_input": 190,
+    "tokens_output": 130
+  },
+  "synthesizer_analysis": {
+    "text": "{\"agent_id\": \"synthesizer_agent_001\", \"agent_type\": \"synthesizer\", \"timestamp\": \"2024-01-01T00:00:00Z\", \"confidence\": 0.90, \"executive_summary\": \"Revenue growth is accelerating while churn decreases. Product engagement is stable with improving feature adoption. Support metrics show healthy CSAT scores.\", \"correlations\": [{\"pattern\": \"Revenue growth correlates with product engagement\", \"agents_involved\": [\"revenue\", \"product\"], \"confidence\": 0.85}], \"root_causes\": [{\"hypothesis\": \"Improved product features driving retention\", \"confidence\": 0.80}], \"strategic_recommendations\": [{\"action\": \"Continue feature development\", \"priority\": \"high\", \"expected_impact\": \"Increased retention\"}], \"key_metrics_summary\": {\"revenue\": {\"current_mrr\": 100000}, \"product\": {\"dau\": 5000}, \"support\": {\"csat_score\": 4.2}}}",
+    "tokens_input": 500,
+    "tokens_output": 300
+  },
+  "evaluation": {
+    "text": "{\"requirement_score\": 0.95, \"requirement_reasoning\": \"All requested areas addressed\", \"grounding_score\": 0.90, \"grounding_reasoning\": \"Well-cited data\", \"quality_score\": 0.92, \"quality_reasoning\": \"Clear and actionable\", \"consistency_score\": 0.88, \"consistency_reasoning\": \"Sections aligned\", \"constraint_score\": 1.0, \"constraint_reasoning\": \"No violations\", \"overall_score\": 0.93, \"pass\": true, \"issues\": [], \"regeneration_needed\": false}",
+    "tokens_input": 400,
+    "tokens_output": 200
+  },
+  "error_response": {
+    "text": "Error: Invalid request",
+    "tokens_input": 0,
+    "tokens_output": 0
+  }
+}
+

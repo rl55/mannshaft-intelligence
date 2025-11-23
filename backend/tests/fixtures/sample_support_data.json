@@ -1,0 +1,19 @@
+{
+  "week_number": 25,
+  "ticket_volume": 150,
+  "average_response_time_hours": 2.5,
+  "csat_score": 4.2,
+  "nps_score": 45,
+  "ticket_categories": {
+    "technical": 60,
+    "billing": 30,
+    "feature_request": 40,
+    "bug": 20
+  },
+  "escalation_rate": 0.10,
+  "first_contact_resolution": 0.75,
+  "support_efficiency": 0.85,
+  "spreadsheet_id": "test_support_sheet",
+  "support_sheet": "Support Tickets"
+}
+

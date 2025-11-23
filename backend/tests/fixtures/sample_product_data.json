@@ -1,0 +1,29 @@
+{
+  "week_number": 25,
+  "dau": 5000,
+  "wau": 15000,
+  "mau": 50000,
+  "feature_adoption": {
+    "feature_a": 0.75,
+    "feature_b": 0.50,
+    "feature_c": 0.30
+  },
+  "user_engagement": {
+    "daily_active_rate": 0.10,
+    "weekly_active_rate": 0.30,
+    "monthly_active_rate": 1.0
+  },
+  "activation_metrics": {
+    "activation_rate": 0.65,
+    "time_to_activation_hours": 24
+  },
+  "pqls": 150,
+  "retention_cohorts": {
+    "week_20": 0.85,
+    "week_21": 0.88,
+    "week_22": 0.90
+  },
+  "spreadsheet_id": "test_product_sheet",
+  "product_sheet": "Product Metrics"
+}
+

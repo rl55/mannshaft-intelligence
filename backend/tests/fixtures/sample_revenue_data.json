@@ -1,0 +1,49 @@
+{
+  "week_number": 25,
+  "revenue_data": [
+    {
+      "week": 21,
+      "mrr": 95000,
+      "new_customers": 8,
+      "churned": 3,
+      "arpu": 95.0,
+      "customer_tier": "smb"
+    },
+    {
+      "week": 22,
+      "mrr": 97000,
+      "new_customers": 9,
+      "churned": 2,
+      "arpu": 97.0,
+      "customer_tier": "smb"
+    },
+    {
+      "week": 23,
+      "mrr": 98000,
+      "new_customers": 10,
+      "churned": 1,
+      "arpu": 98.0,
+      "customer_tier": "smb"
+    },
+    {
+      "week": 24,
+      "mrr": 99000,
+      "new_customers": 11,
+      "churned": 2,
+      "arpu": 99.0,
+      "customer_tier": "smb"
+    },
+    {
+      "week": 25,
+      "mrr": 100000,
+      "new_customers": 12,
+      "churned": 1,
+      "arpu": 100.0,
+      "customer_tier": "smb"
+    }
+  ],
+  "spreadsheet_id": "test_revenue_sheet",
+  "revenue_sheet": "Revenue Metrics",
+  "churn_sheet": "Churn Data"
+}
+
