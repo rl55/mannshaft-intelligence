@@ -76,6 +76,7 @@ credentials/*.key
 **/google-credentials.json
 **/*-credentials.json
 backend/credentials/*.json
+backend/credentials/*
 
 # Node
 node_modules/
