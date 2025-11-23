@@ -9,16 +9,8 @@ import {
   ChartLegendContent,
 } from "@/components/ui/chart"
 import { PieChart, Pie, Cell, ResponsiveContainer } from "recharts"
-
-const data = [
-  { name: "Critical", value: 0 },
-  { name: "High", value: 2 },
-  { name: "Medium", value: 10 },
-  { name: "Low", value: 6 },
-]
-
-// Filter out zero values for better visualization if needed, or keep to show empty
-const activeData = data.filter((d) => d.value > 0)
+import { apiClient } from "@/lib/api"
+import { useQuery } from "@tanstack/react-query"
 
 const chartConfig = {
   Critical: {
@@ -40,6 +32,47 @@ const chartConfig = {
 }
 
 export function SeverityDistributionChart() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["guardrail-severity-distribution"],
+    queryFn: () => apiClient.getGuardrailSeverityDistribution(30),
+    refetchInterval: 60000, // Refetch every minute
+  })
+
+  if (isLoading) {
+    return (
+      <Card className="flex flex-col">
+        <CardHeader>
+          <CardTitle>Violations by Severity</CardTitle>
+          <CardDescription>Distribution by risk level</CardDescription>
+        </CardHeader>
+        <CardContent className="flex-1 pb-0">
+          <div className="h-[300px] flex items-center justify-center">
+            <p className="text-muted-foreground">Loading...</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const distribution = data?.distribution || []
+  const activeData = distribution.filter((d: any) => d.value > 0)
+
+  if (activeData.length === 0) {
+    return (
+      <Card className="flex flex-col">
+        <CardHeader>
+          <CardTitle>Violations by Severity</CardTitle>
+          <CardDescription>Distribution by risk level</CardDescription>
+        </CardHeader>
+        <CardContent className="flex-1 pb-0">
+          <div className="h-[300px] flex items-center justify-center">
+            <p className="text-muted-foreground">No violations found</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <Card className="flex flex-col">
       <CardHeader>
@@ -51,7 +84,7 @@ export function SeverityDistributionChart() {
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie data={activeData} dataKey="value" nameKey="name" innerRadius={60} strokeWidth={5}>
-                {activeData.map((entry, index) => (
+                {activeData.map((entry: any, index: number) => (
                   <Cell key={`cell-${index}`} fill={`var(--color-${entry.name})`} />
                 ))}
               </Pie>

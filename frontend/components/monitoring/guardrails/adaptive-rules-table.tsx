@@ -1,15 +1,65 @@
+"use client"
+
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ArrowRight, Settings2 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-
-const data = [
-  { rule: "Low Confidence", threshold: "0.70", adjustments: 2, status: "Active" },
-  { rule: "Anomaly Detector", threshold: "0.85", adjustments: 5, status: "Active" },
-]
+import { apiClient } from "@/lib/api"
+import { useQuery } from "@tanstack/react-query"
 
 export function AdaptiveRulesTable() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["adaptive-rules"],
+    queryFn: () => apiClient.getAdaptiveRules(),
+    refetchInterval: 60000, // Refetch every minute
+  })
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg flex items-center gap-2">
+            Adaptive Rules Status
+            <Badge variant="secondary" className="text-xs font-normal">
+              Auto-Tuning
+            </Badge>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[200px] flex items-center justify-center">
+            <p className="text-muted-foreground">Loading...</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const rules = data?.rules || []
+
+  if (rules.length === 0) {
+    return (
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg flex items-center gap-2">
+            Adaptive Rules Status
+            <Badge variant="secondary" className="text-xs font-normal">
+              Auto-Tuning
+            </Badge>
+          </CardTitle>
+          <Button variant="ghost" size="sm" className="text-xs">
+            Manage Rules <ArrowRight className="ml-1 h-3 w-3" />
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[200px] flex items-center justify-center">
+            <p className="text-muted-foreground">No adaptive rules configured</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -35,7 +85,7 @@ export function AdaptiveRulesTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {data.map((item) => (
+            {rules.map((item: any) => (
               <TableRow key={item.rule}>
                 <TableCell className="font-medium">{item.rule}</TableCell>
                 <TableCell>{item.threshold}</TableCell>

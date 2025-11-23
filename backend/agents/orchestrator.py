@@ -147,13 +147,14 @@ class OrchestratorAgent:
         self,
         week_number: int,
         user_id: str,
-        analysis_type: str = "comprehensive"
+        analysis_type: str = "comprehensive",
+        session_id: Optional[str] = None
     ) -> AnalysisResult:
         """
         Coordinate weekly SaaS analysis across all agents.
         
         This is the main entry point for weekly analysis. It:
-        1. Creates a session
+        1. Creates a session (or uses provided session_id)
         2. Executes analytical agents in parallel
         3. Synthesizes results
         4. Applies guardrails
@@ -165,6 +166,7 @@ class OrchestratorAgent:
             week_number: Week number for analysis (e.g., 1-52)
             user_id: User identifier
             analysis_type: Type of analysis ("comprehensive", "revenue_only", etc.)
+            session_id: Optional session ID to use (if not provided, creates a new one)
             
         Returns:
             AnalysisResult with:
@@ -184,7 +186,6 @@ class OrchestratorAgent:
             RuntimeError: If analysis fails after all retries
         """
         start_time = time.time()
-        session_id = None
         regeneration_count = 0
         
         try:
@@ -201,17 +202,20 @@ class OrchestratorAgent:
                     'week_number': week_number,
                     'user_id': user_id,
                     'analysis_type': analysis_type,
-                    'agent_types': agent_types
+                    'agent_types': agent_types,
+                    'session_id': session_id
                 }
             )
             
-            # Step 1: Initialize session
-            session_id = self.cache_manager.create_session(
-                session_type=f"weekly_analysis_{analysis_type}",
-                user_id=user_id
-            )
-            
-            self.logger.info(f"Created session: {session_id}")
+            # Step 1: Initialize session (use provided session_id or create new one)
+            if session_id is None:
+                session_id = self.cache_manager.create_session(
+                    session_type=f"weekly_analysis_{analysis_type}",
+                    user_id=user_id
+                )
+                self.logger.info(f"Created new session: {session_id}")
+            else:
+                self.logger.info(f"Using provided session: {session_id}")
             
             # Main analysis loop with regeneration support
             while regeneration_count <= self.max_regenerations:
@@ -291,7 +295,8 @@ class OrchestratorAgent:
                                 k: {
                                     'cached': v.get('cached', False),
                                     'execution_time_ms': v.get('execution_time_ms', 0),
-                                    'confidence_score': v.get('confidence_score', 0.0)
+                                    'confidence_score': v.get('confidence_score', 0.0),
+                                    'response': v.get('response', '{}')  # Store full response for insights extraction
                                 }
                                 for k, v in analytical_results.items()
                             }
@@ -387,6 +392,7 @@ class OrchestratorAgent:
         agent_analysis_type = 'comprehensive'  # Default for all agents
         
         # Get spreadsheet IDs from config for each agent type
+        # Note: Config uses REVENUE_SHEET_ID, PRODUCT_SHEET_ID, SUPPORT_SHEET_ID env vars
         spreadsheet_ids = {
             'revenue': config.get('sheets.revenue.spreadsheet_id'),
             'product': config.get('sheets.product.spreadsheet_id'),
@@ -411,19 +417,30 @@ class OrchestratorAgent:
                 'analysis_type': agent_analysis_type
             }
             
-            # Add spreadsheet_id and sheet name for this specific agent
+            # Add spreadsheet_id and sheet names for this specific agent
             spreadsheet_id = spreadsheet_ids.get(agent_type)
             if spreadsheet_id:
                 agent_context['spreadsheet_id'] = spreadsheet_id
                 if agent_type == 'revenue':
-                    revenue_ranges = config.get('sheets.revenue.ranges', ['Revenue Metrics!A1:G100'])
-                    agent_context['revenue_sheet'] = revenue_ranges[0].split('!')[0] if revenue_ranges else 'Revenue Metrics'
+                    revenue_ranges = config.get('sheets.revenue.ranges', ['Weekly Revenue!A1:N100'])
+                    revenue_sheet_name = revenue_ranges[0].split('!')[0] if revenue_ranges else 'Weekly Revenue'
+                    agent_context['revenue_sheet'] = revenue_sheet_name
+                    # Churn data is in the main revenue sheet, so set churn_sheet to None
+                    agent_context['churn_sheet'] = None
+                    # Pass all revenue sheet ranges for potential future use
+                    agent_context['revenue_ranges'] = revenue_ranges
                 elif agent_type == 'product':
-                    product_ranges = config.get('sheets.product.ranges', ['DAU/WAU!A1:F100'])
-                    agent_context['product_sheet'] = product_ranges[0].split('!')[0] if product_ranges else 'DAU/WAU'
+                    product_ranges = config.get('sheets.product.ranges', ['Engagement Metrics!A1:M100'])
+                    product_sheet_name = product_ranges[0].split('!')[0] if product_ranges else 'Engagement Metrics'
+                    agent_context['product_sheet'] = product_sheet_name
+                    # Pass all product sheet ranges so agent can read multiple tabs
+                    agent_context['product_ranges'] = product_ranges
                 elif agent_type == 'support':
-                    support_ranges = config.get('sheets.support.ranges', ['Ticket Volume!A1:E100'])
-                    agent_context['support_sheet'] = support_ranges[0].split('!')[0] if support_ranges else 'Ticket Volume'
+                    support_ranges = config.get('sheets.support.ranges', ['Ticket Volume!A1:N100'])
+                    support_sheet_name = support_ranges[0].split('!')[0] if support_ranges else 'Ticket Volume'
+                    agent_context['support_sheet'] = support_sheet_name
+                    # Pass all support sheet ranges so agent can read multiple tabs
+                    agent_context['support_ranges'] = support_ranges
             
             agent = self.agents[agent_type]
             task = self._execute_agent_with_timeout(

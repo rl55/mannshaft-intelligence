@@ -177,12 +177,28 @@ class HITLManager:
             resolution_time_minutes = int((time.time() - start_time) / 60)
             decision.resolution_time_minutes = resolution_time_minutes
             
-            self.resolve_request(
-                request_id=request_id,
-                status=HITLStatus(decision.decision.upper()),
-                human_decision=decision.decision,
-                human_feedback=decision.feedback
-            )
+            # Convert decision to HITLStatus (handle both pending and approved/rejected)
+            decision_lower = decision.decision.lower()
+            if decision_lower == "pending":
+                # Don't resolve if still pending - wait for actual decision
+                self.logger.info(f"HITL request {request_id} still pending, not resolving yet")
+                return decision
+            elif decision_lower in ["approved", "rejected", "modified"]:
+                self.resolve_request(
+                    request_id=request_id,
+                    status=HITLStatus(decision_lower),
+                    human_decision=decision.decision,
+                    human_feedback=decision.feedback
+                )
+            else:
+                # Default to approved for unknown decisions
+                self.logger.warning(f"Unknown decision '{decision.decision}', defaulting to approved")
+                self.resolve_request(
+                    request_id=request_id,
+                    status=HITLStatus.APPROVED,
+                    human_decision=decision.decision,
+                    human_feedback=decision.feedback
+                )
             
             # Step 6: Learn from decision
             if self.guardrail_agent and decision.decision in ['approved', 'rejected']:
@@ -624,6 +640,50 @@ class HITLManager:
             return requests
         except Exception as e:
             self.logger.error(f"Error getting pending requests: {e}", exc_info=True)
+            return []
+    
+    def get_all_requests(self, limit: int = 50, include_resolved: bool = True) -> List[Dict[str, Any]]:
+        """
+        Get all HITL requests (including resolved ones with decisions and feedback).
+        
+        Args:
+            limit: Maximum number of requests to return
+            include_resolved: Whether to include resolved requests
+            
+        Returns:
+            List of request dictionaries with decisions and feedback
+        """
+        try:
+            conn = self.cache_manager.connect()
+            cursor = conn.cursor()
+            
+            if include_resolved:
+                cursor.execute("""
+                    SELECT * FROM hitl_requests
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                """, (limit,))
+            else:
+                cursor.execute("""
+                    SELECT * FROM hitl_requests
+                    WHERE status = 'pending'
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                """, (limit,))
+            
+            requests = [dict(row) for row in cursor.fetchall()]
+            
+            # Parse context JSON
+            for req in requests:
+                if req.get('context'):
+                    try:
+                        req['context'] = json.loads(req['context'])
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+            
+            return requests
+        except Exception as e:
+            self.logger.error(f"Error getting all requests: {e}", exc_info=True)
             return []
     
     def approve_request(

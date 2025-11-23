@@ -13,6 +13,7 @@ Features:
 import json
 import time
 import uuid
+import hashlib
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from dataclasses import dataclass, field
@@ -40,6 +41,8 @@ class RevenueDataPoint(BaseModel):
     churned: int = Field(..., ge=0, description="Customers churned")
     arpu: Optional[float] = Field(None, ge=0, description="Average Revenue Per User")
     customer_tier: Optional[str] = Field(None, description="Customer tier (enterprise/smb)")
+    churn_rate: Optional[float] = Field(None, ge=0, description="Churn rate (0-1 decimal or percentage if > 1)")
+    customer_count: Optional[int] = Field(None, ge=0, description="Total customer count")
     
     @validator('churned')
     def validate_churned(cls, v, values):
@@ -145,6 +148,7 @@ class RevenueAgent(BaseAgent):
                 - spreadsheet_id: Optional Google Sheets ID
                 - manual_data: Optional manual data override
                 - analysis_type: Type of analysis
+                - revenue_ranges: Optional list of sheet ranges to read (e.g., ["Weekly Revenue!A1:N100", "Customer Cohorts!A1:K100"])
             session_id: Session identifier
             
         Returns:
@@ -164,16 +168,25 @@ class RevenueAgent(BaseAgent):
                 raise ValueError(f"Invalid input: {e}")
             
             # Step 2: Fetch data from Google Sheets or use manual data
-            revenue_data = await self._fetch_revenue_data(revenue_input)
+            # Pass revenue_ranges from context if available
+            revenue_ranges = context.get('revenue_ranges', [])
+            revenue_data = await self._fetch_revenue_data(revenue_input, revenue_ranges)
             
-            # Step 3: Validate data quality and freshness
-            data_quality = self._validate_data_quality(revenue_data)
+            # Step 2.5: Filter data to include target week and previous weeks for context (for trends)
+            # This ensures we analyze the correct week while still having historical context
+            filtered_data_for_analysis = self._filter_data_for_analysis(revenue_data, revenue_input.week_number)
             
-            # Step 4: Check agent-level cache
+            # Step 2.6: Filter data by week_number for cache key (to ensure unique cache per week)
+            filtered_data_for_cache = self._filter_data_by_week(revenue_data, revenue_input.week_number)
+            
+            # Step 3: Validate data quality and freshness (using filtered data)
+            data_quality = self._validate_data_quality(filtered_data_for_analysis)
+            
+            # Step 4: Check agent-level cache (using filtered data hash to ensure week-specific caching)
             cache_context = {
                 'week_number': revenue_input.week_number,
                 'analysis_type': revenue_input.analysis_type,
-                'data_hash': self._hash_data(revenue_data)
+                'data_hash': self._hash_data(filtered_data_for_cache)
             }
             
             cached_response = self.cache_manager.get_cached_agent_response(
@@ -196,28 +209,37 @@ class RevenueAgent(BaseAgent):
             
             self.logger.info("Agent cache MISS - generating new analysis")
             
-            # Step 5: Perform statistical analysis
-            statistical_analysis = self._perform_statistical_analysis(revenue_data)
+            # Step 5: Perform statistical analysis (using filtered data with target week as current)
+            # Include additional tab data if available
+            statistical_analysis = self._perform_statistical_analysis(
+                filtered_data_for_analysis, 
+                revenue_input.week_number,
+                cohort_data=revenue_data.get('cohort_data'),
+                segment_data=revenue_data.get('segment_data')
+            )
             
-            # Step 6: Generate Gemini analysis with structured prompt
+            # Step 6: Generate Gemini analysis with structured prompt (using filtered data)
+            # Include additional tab data if available
             gemini_analysis = await self._generate_gemini_analysis(
-                revenue_data=revenue_data,
+                revenue_data=filtered_data_for_analysis,
                 statistical_analysis=statistical_analysis,
                 week_number=revenue_input.week_number,
-                analysis_type=revenue_input.analysis_type
+                analysis_type=revenue_input.analysis_type,
+                cohort_data=revenue_data.get('cohort_data'),
+                segment_data=revenue_data.get('segment_data')
             )
             
             # Step 7: Combine analyses and format output
             combined_analysis = self._combine_analyses(
                 statistical_analysis=statistical_analysis,
                 gemini_analysis=gemini_analysis,
-                revenue_data=revenue_data,
+                revenue_data=filtered_data_for_analysis,
                 week_number=revenue_input.week_number
             )
             
             # Step 8: Calculate confidence with reasoning
             confidence_result = self._calculate_confidence(
-                revenue_data=revenue_data,
+                revenue_data=filtered_data_for_analysis,
                 data_quality=data_quality,
                 analysis=combined_analysis
             )
@@ -285,12 +307,13 @@ class RevenueAgent(BaseAgent):
             )
             raise
     
-    async def _fetch_revenue_data(self, revenue_input: RevenueInput) -> Dict[str, Any]:
+    async def _fetch_revenue_data(self, revenue_input: RevenueInput, revenue_ranges: List[str] = None) -> Dict[str, Any]:
         """
         Fetch revenue data from Google Sheets or use manual data.
         
         Args:
             revenue_input: Validated input
+            revenue_ranges: Optional list of sheet ranges to read
             
         Returns:
             Revenue data dictionary
@@ -310,24 +333,68 @@ class RevenueAgent(BaseAgent):
         try:
             self.logger.info(f"Fetching data from Google Sheets: {revenue_input.spreadsheet_id}")
             
-            # Fetch revenue data
+            # Fetch revenue data from primary sheet
             revenue_rows = self.sheets_client.get_sheet_data(
                 spreadsheet_id=revenue_input.spreadsheet_id,
                 sheet_name=revenue_input.revenue_sheet
             )
             
-            # Fetch churn data if available
+            # Fetch churn data if available (churn data is typically in the main revenue sheet)
             churn_rows = []
-            try:
-                churn_rows = self.sheets_client.get_sheet_data(
-                    spreadsheet_id=revenue_input.spreadsheet_id,
-                    sheet_name=revenue_input.churn_sheet
-                )
-            except Exception as e:
-                self.logger.warning(f"Could not fetch churn data: {e}")
+            if revenue_input.churn_sheet and revenue_input.churn_sheet != revenue_input.revenue_sheet:
+                try:
+                    churn_rows = self.sheets_client.get_sheet_data(
+                        spreadsheet_id=revenue_input.spreadsheet_id,
+                        sheet_name=revenue_input.churn_sheet
+                    )
+                except Exception as e:
+                    self.logger.debug(f"Churn data not in separate sheet (likely in main sheet): {e}")
             
             # Parse rows into structured data
             revenue_data = self._parse_sheet_data(revenue_rows, churn_rows)
+            
+            # If multiple ranges are configured, fetch and merge data from additional tabs
+            if revenue_ranges and len(revenue_ranges) > 1:
+                self.logger.info(f"Fetching data from {len(revenue_ranges)} revenue sheets")
+                for range_spec in revenue_ranges[1:]:  # Skip first (already fetched)
+                    try:
+                        # Extract sheet name and range from "SheetName!A1:N100"
+                        if '!' in range_spec:
+                            sheet_name, range_name = range_spec.split('!', 1)
+                        else:
+                            sheet_name = range_spec
+                            range_name = None
+                        
+                        self.logger.info(f"Fetching data from sheet: {sheet_name}")
+                        additional_rows = self.sheets_client.get_sheet_data(
+                            spreadsheet_id=revenue_input.spreadsheet_id,
+                            sheet_name=sheet_name,
+                            range_name=range_name
+                        )
+                        
+                        # Merge additional data based on sheet name
+                        if 'Cohort' in sheet_name or 'cohort' in sheet_name.lower():
+                            cohort_data = self._parse_cohort_data(additional_rows)
+                            revenue_data['cohort_data'] = cohort_data
+                            self.logger.info(f"Merged cohort data from {sheet_name}")
+                        elif 'Segment' in sheet_name or 'segment' in sheet_name.lower():
+                            segment_data = self._parse_segment_data(additional_rows)
+                            revenue_data['segment_data'] = segment_data
+                            self.logger.info(f"Merged segment data from {sheet_name}")
+                        else:
+                            # Generic merge - try to parse as additional revenue data
+                            additional_data = self._parse_sheet_data(additional_rows, [])
+                            # Merge records if they have week numbers
+                            if 'records' in additional_data and 'records' in revenue_data:
+                                # Merge records by week
+                                existing_weeks = {r.get('week') for r in revenue_data.get('records', [])}
+                                for record in additional_data.get('records', []):
+                                    if record.get('week') not in existing_weeks:
+                                        revenue_data['records'].append(record)
+                            self.logger.info(f"Merged generic data from {sheet_name}")
+                    except Exception as e:
+                        self.logger.warning(f"Could not fetch data from {range_spec}: {e}")
+                        continue
             
             return revenue_data
             
@@ -350,8 +417,26 @@ class RevenueAgent(BaseAgent):
         if not revenue_rows or len(revenue_rows) < 2:
             raise ValueError("Insufficient revenue data in sheet")
         
-        # Assume first row is header
-        headers = [str(h).lower().strip() for h in revenue_rows[0]]
+        # Map Google Sheets column names to expected field names
+        column_mapping = {
+            'new customers': 'new_customers',
+            'churned customers': 'churned',
+            'new mrr': 'new_mrr',
+            'churned mrr': 'churned_mrr',
+            'expansion mrr': 'expansion_mrr',
+            'contraction mrr': 'contraction_mrr',
+            'customer count': 'customer_count',
+            'churn rate %': 'churn_rate',
+            'churn rate': 'churn_rate',  # Handle both with and without %
+            'mrr growth %': 'mrr_growth',
+            'mrr growth': 'mrr_growth',  # Handle both with and without %
+            'start date': 'start_date',
+            'end date': 'end_date',
+        }
+        
+        # Normalize headers: lowercase, strip, and map to expected field names
+        raw_headers = [str(h).strip() for h in revenue_rows[0]]
+        headers = [column_mapping.get(h.lower(), h.lower().replace(' ', '_').replace('%', '').replace('$', '')) for h in raw_headers]
         
         records = []
         for row in revenue_rows[1:]:
@@ -363,7 +448,7 @@ class RevenueAgent(BaseAgent):
                 value = row[i] if i < len(row) else None
                 
                 # Try to parse numeric values
-                if header in ['week', 'mrr', 'arpu']:
+                if header in ['week', 'mrr', 'arpu', 'new_mrr', 'churned_mrr', 'expansion_mrr', 'contraction_mrr', 'customer_count', 'churn_rate', 'mrr_growth']:
                     try:
                         value = float(value) if value else None
                     except (ValueError, TypeError):
@@ -390,6 +475,76 @@ class RevenueAgent(BaseAgent):
             'records': records,
             'total_records': len(records)
         }
+    
+    def _parse_cohort_data(self, rows: List[List[Any]]) -> Dict[str, Any]:
+        """Parse Customer Cohorts sheet data."""
+        if not rows or len(rows) < 2:
+            return {'records': [], 'total_records': 0}
+        
+        headers = [str(h).lower().strip() for h in rows[0]]
+        records = []
+        
+        for row in rows[1:]:
+            if len(row) < len(headers):
+                continue
+            
+            record = {}
+            for i, header in enumerate(headers):
+                value = row[i] if i < len(row) else None
+                if header in ['week', 'cohort']:
+                    try:
+                        value = int(value) if value else None
+                    except (ValueError, TypeError):
+                        value = None
+                elif 'retention' in header or 'rate' in header or 'revenue' in header or 'mrr' in header:
+                    try:
+                        value = float(value) if value else None
+                    except (ValueError, TypeError):
+                        value = None
+                else:
+                    value = str(value) if value else None
+                record[header] = value
+            
+            if record.get('week') or record.get('cohort'):
+                records.append(record)
+        
+        return {'records': records, 'total_records': len(records)}
+    
+    def _parse_segment_data(self, rows: List[List[Any]]) -> Dict[str, Any]:
+        """Parse Revenue by Segment sheet data."""
+        if not rows or len(rows) < 2:
+            return {'records': [], 'total_records': 0}
+        
+        headers = [str(h).lower().strip() for h in rows[0]]
+        records = []
+        
+        for row in rows[1:]:
+            if len(row) < len(headers):
+                continue
+            
+            record = {}
+            for i, header in enumerate(headers):
+                value = row[i] if i < len(row) else None
+                if header in ['week']:
+                    try:
+                        value = int(value) if value else None
+                    except (ValueError, TypeError):
+                        value = None
+                elif 'segment' in header.lower():
+                    value = str(value) if value else None
+                elif 'revenue' in header or 'mrr' in header or 'arpu' in header or 'customer' in header:
+                    try:
+                        value = float(value) if value else None
+                    except (ValueError, TypeError):
+                        value = None
+                else:
+                    value = str(value) if value else None
+                record[header] = value
+            
+            if record.get('week'):
+                records.append(record)
+        
+        return {'records': records, 'total_records': len(records)}
     
     def _validate_data_quality(self, revenue_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -445,12 +600,21 @@ class RevenueAgent(BaseAgent):
         
         return quality
     
-    def _perform_statistical_analysis(self, revenue_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _perform_statistical_analysis(
+        self, 
+        revenue_data: Dict[str, Any], 
+        target_week: Optional[int] = None,
+        cohort_data: Optional[Dict[str, Any]] = None,
+        segment_data: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Perform statistical analysis on revenue data.
         
         Args:
-            revenue_data: Revenue data
+            revenue_data: Revenue data (should be filtered to include target week and previous weeks)
+            target_week: Target week number (if None, uses last week in data)
+            cohort_data: Optional cohort retention data from Customer Cohorts sheet
+            segment_data: Optional segment breakdown data from Revenue by Segment sheet
             
         Returns:
             Statistical analysis results
@@ -467,32 +631,128 @@ class RevenueAgent(BaseAgent):
         # Sort by week
         sorted_records = sorted(records, key=lambda x: x.get('week', 0))
         
-        # MRR Analysis
-        mrr_values = [r['mrr'] for r in sorted_records if r.get('mrr')]
-        current_mrr = mrr_values[-1] if mrr_values else 0
+        # Extract MRR values for all records (needed for fallback calculations)
+        mrr_values = [r['mrr'] for r in sorted_records if r.get('mrr') is not None]
         
+        # Find target week record (or use last week if target_week not specified)
+        if target_week is not None:
+            target_record = next((r for r in sorted_records if r.get('week') == target_week), None)
+            if target_record:
+                current_mrr = target_record.get('mrr', 0)
+            else:
+                # Fallback to last week if target week not found
+                current_mrr = mrr_values[-1] if mrr_values else 0
+        else:
+            # Use last week if no target specified
+            current_mrr = mrr_values[-1] if mrr_values else 0
+        
+        # Calculate WoW growth using target week and previous week
         wow_growth = 0.0
-        if len(mrr_values) >= 2:
+        if target_week is not None and target_week > 1:
+            prev_week_record = next((r for r in sorted_records if r.get('week') == target_week - 1), None)
+            if prev_week_record and prev_week_record.get('mrr', 0) > 0:
+                prev_mrr = prev_week_record.get('mrr', 0)
+                wow_growth = (current_mrr - prev_mrr) / prev_mrr if prev_mrr > 0 else 0
+        elif len(mrr_values) >= 2:
+            # Fallback: use last two weeks
             wow_growth = (mrr_values[-1] - mrr_values[-2]) / mrr_values[-2] if mrr_values[-2] > 0 else 0
         
+        # Calculate MoM growth using target week and 4-5 weeks ago
         mom_growth = 0.0
-        if len(mrr_values) >= 5:  # Approximate month (4-5 weeks)
+        if target_week is not None and target_week >= 5:
+            month_ago_week = target_week - 4  # Approximate month (4 weeks)
+            month_ago_record = next((r for r in sorted_records if r.get('week') == month_ago_week), None)
+            if month_ago_record and month_ago_record.get('mrr', 0) > 0:
+                month_ago_mrr = month_ago_record.get('mrr', 0)
+                mom_growth = (current_mrr - month_ago_mrr) / month_ago_mrr if month_ago_mrr > 0 else 0
+        elif len(mrr_values) >= 5:  # Fallback: use last 5 weeks
             mom_growth = (mrr_values[-1] - mrr_values[-5]) / mrr_values[-5] if mrr_values[-5] > 0 else 0
         
-        # Churn Analysis
-        total_churned = sum(r.get('churned', 0) for r in sorted_records[-4:])  # Last 4 weeks
-        total_new = sum(r.get('new_customers', 0) for r in sorted_records[-4:])
-        churn_rate = total_churned / total_new if total_new > 0 else 0
+        # Churn Analysis - use churn_rate from sheet for target week if available
+        # Otherwise calculate from churned customers and customer count
+        churn_rate = None
+        prev_churn_rate = None
+        
+        if target_week is not None:
+            # First, try to use churn_rate directly from the sheet for the target week
+            target_record = next((r for r in sorted_records if r.get('week') == target_week), None)
+            if target_record and target_record.get('churn_rate') is not None:
+                # Use churn_rate from sheet (already a percentage, convert to decimal if > 1)
+                churn_rate_raw = target_record.get('churn_rate')
+                churn_rate = churn_rate_raw / 100.0 if churn_rate_raw > 1 else churn_rate_raw
+                self.logger.info(f"Using churn_rate from sheet for Week {target_week}: {churn_rate} (raw: {churn_rate_raw})")
+            elif target_record:
+                # Calculate churn rate for target week using customer_count if available
+                churned = target_record.get('churned', 0)
+                customer_count = target_record.get('customer_count')
+                
+                if customer_count and customer_count > 0:
+                    churn_rate = churned / customer_count
+                    self.logger.info(f"Calculated churn_rate for Week {target_week}: {churn_rate} (churned={churned}, customer_count={customer_count})")
+                else:
+                    # Fallback: use previous week's customer count + new customers - churned
+                    prev_week_record = next((r for r in sorted_records if r.get('week') == target_week - 1), None)
+                    if prev_week_record:
+                        prev_customer_count = prev_week_record.get('customer_count')
+                        new_customers = target_record.get('new_customers', 0)
+                        if prev_customer_count and prev_customer_count > 0:
+                            total_customers = prev_customer_count + new_customers
+                            churn_rate = churned / total_customers if total_customers > 0 else 0
+                            self.logger.info(f"Calculated churn_rate using previous week's count: {churn_rate}")
+            
+            # Get previous week's churn rate for change calculation
+            if target_week > 1:
+                prev_week_record = next((r for r in sorted_records if r.get('week') == target_week - 1), None)
+                if prev_week_record:
+                    if prev_week_record.get('churn_rate') is not None:
+                        prev_churn_rate_raw = prev_week_record.get('churn_rate')
+                        prev_churn_rate = prev_churn_rate_raw / 100.0 if prev_churn_rate_raw > 1 else prev_churn_rate_raw
+                    elif prev_week_record.get('customer_count') and prev_week_record.get('customer_count') > 0:
+                        prev_churned = prev_week_record.get('churned', 0)
+                        prev_churn_rate = prev_churned / prev_week_record.get('customer_count')
+        
+        # If still no churn_rate, use average of last 4 weeks
+        if churn_rate is None:
+            churn_records = sorted_records[-4:] if len(sorted_records) >= 4 else sorted_records
+            total_churned = sum(r.get('churned', 0) for r in churn_records)
+            
+            # Try to use churn_rate from records if available
+            churn_rates = [r.get('churn_rate') for r in churn_records if r.get('churn_rate') is not None]
+            if churn_rates:
+                # Convert percentages to decimals if needed
+                churn_rates_decimal = [r / 100.0 if r > 1 else r for r in churn_rates]
+                churn_rate = np.mean(churn_rates_decimal)
+            else:
+                # Try to use customer_count from records
+                customer_counts = [r.get('customer_count') for r in churn_records if r.get('customer_count')]
+                if customer_counts:
+                    avg_customer_count = np.mean(customer_counts)
+                    churn_rate = total_churned / (avg_customer_count * len(churn_records)) if avg_customer_count > 0 else 0
+                else:
+                    # This should not happen, but set to 0 as fallback
+                    churn_rate = 0
+                    self.logger.warning("Could not calculate churn_rate - using 0 as fallback")
+        
+        # Calculate change_from_previous for churn rate
+        churn_change = 0.0
+        if prev_churn_rate is not None and prev_churn_rate > 0:
+            churn_change = churn_rate - prev_churn_rate
         
         # ARPU Analysis
         arpu_values = [r['arpu'] for r in sorted_records if r.get('arpu')]
         avg_arpu = np.mean(arpu_values) if arpu_values else None
+        
+        # Calculate change_from_previous for churn rate
+        churn_change = 0.0
+        if prev_churn_rate is not None and prev_churn_rate > 0:
+            churn_change = churn_rate - prev_churn_rate
         
         return {
             'current_mrr': current_mrr,
             'wow_growth': wow_growth,
             'mom_growth': mom_growth,
             'churn_rate': churn_rate,
+            'churn_change_from_previous': churn_change,
             'avg_arpu': avg_arpu,
             'data_points': len(records)
         }
@@ -502,7 +762,9 @@ class RevenueAgent(BaseAgent):
         revenue_data: Dict[str, Any],
         statistical_analysis: Dict[str, Any],
         week_number: int,
-        analysis_type: str
+        analysis_type: str,
+        cohort_data: Optional[Dict[str, Any]] = None,
+        segment_data: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Generate analysis using Gemini with structured prompts.
@@ -512,6 +774,8 @@ class RevenueAgent(BaseAgent):
             statistical_analysis: Statistical analysis results
             week_number: Week number
             analysis_type: Type of analysis
+            cohort_data: Optional cohort retention data from Customer Cohorts sheet
+            segment_data: Optional segment breakdown data from Revenue by Segment sheet
             
         Returns:
             Gemini analysis results
@@ -521,28 +785,62 @@ class RevenueAgent(BaseAgent):
             revenue_data=revenue_data,
             statistical_analysis=statistical_analysis,
             week_number=week_number,
-            analysis_type=analysis_type
+            analysis_type=analysis_type,
+            cohort_data=cohort_data,
+            segment_data=segment_data
         )
         
         # Check prompt cache
+        # Note: The prompt already includes week_number, so the cache key should be unique per week
+        # But we'll add explicit logging to verify
         cached_prompt = self.cache_manager.get_cached_prompt(
             prompt=prompt,
             model=self.gemini_client.model_name
         )
         
         if cached_prompt:
+            self.logger.info(f"Prompt cache HIT for Week {week_number} analysis")
+        else:
+            self.logger.info(f"Prompt cache MISS for Week {week_number} analysis - generating new response")
+        
+        if cached_prompt:
             self.logger.info("Prompt cache HIT")
             try:
-                return {
-                    'analysis': json.loads(cached_prompt['response']),
-                    'tokens_input': cached_prompt.get('tokens_input', 0),
-                    'tokens_output': cached_prompt.get('tokens_output', 0),
-                    'cached': True
-                }
+                cached_analysis = json.loads(cached_prompt['response'])
+                # Verify cached analysis is for the correct week
+                # Check if key insights mention the correct week
+                key_insights = cached_analysis.get('key_insights', [])
+                if key_insights:
+                    insights_text = ' '.join(key_insights).lower()
+                    if f'week {week_number}' not in insights_text and f'week {week_number}' not in str(cached_analysis).lower():
+                        self.logger.warning(
+                            f"Cached prompt response may be for wrong week. "
+                            f"Expected Week {week_number}, but insights mention: {insights_text[:200]}"
+                        )
+                        # Don't use cached response if it seems wrong
+                        cached_prompt = None
+                    else:
+                        self.logger.info(f"Using cached prompt response for Week {week_number}")
+                        return {
+                            'analysis': cached_analysis,
+                            'tokens_input': cached_prompt.get('tokens_input', 0),
+                            'tokens_output': cached_prompt.get('tokens_output', 0),
+                            'cached': True
+                        }
+                else:
+                    # No insights to check, use cached response
+                    return {
+                        'analysis': cached_analysis,
+                        'tokens_input': cached_prompt.get('tokens_input', 0),
+                        'tokens_output': cached_prompt.get('tokens_output', 0),
+                        'cached': True
+                    }
             except json.JSONDecodeError:
                 self.logger.warning("Cached response is not valid JSON, regenerating")
+                cached_prompt = None
         
-        self.logger.info("Prompt cache MISS - calling Gemini API")
+        if not cached_prompt:
+            self.logger.info(f"Prompt cache MISS for Week {week_number} - calling Gemini API")
         
         # Call Gemini API
         gemini_response = None
@@ -599,7 +897,9 @@ class RevenueAgent(BaseAgent):
         revenue_data: Dict[str, Any],
         statistical_analysis: Dict[str, Any],
         week_number: int,
-        analysis_type: str
+        analysis_type: str,
+        cohort_data: Optional[Dict[str, Any]] = None,
+        segment_data: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Build structured prompt with few-shot examples for Gemini.
@@ -609,17 +909,48 @@ class RevenueAgent(BaseAgent):
             statistical_analysis: Statistical analysis
             week_number: Week number
             analysis_type: Type of analysis
+            cohort_data: Optional cohort retention data from Customer Cohorts sheet
+            segment_data: Optional segment breakdown data from Revenue by Segment sheet
             
         Returns:
             Structured prompt string
         """
+        # Get churn values from statistical analysis to include in prompt
+        churn_rate = statistical_analysis.get('churn_rate', 0)
+        churn_change = statistical_analysis.get('churn_change_from_previous', 0)
+        
         prompt = f"""You are a SaaS revenue analyst. Analyze the following revenue data for Week {week_number} and provide a comprehensive analysis in JSON format.
+
+IMPORTANT: Focus your analysis specifically on Week {week_number}. The data includes historical weeks for context, but your analysis should be centered on Week {week_number} metrics and trends.
 
 REVENUE DATA:
 {json.dumps(revenue_data, indent=2)}
-
+"""
+        
+        # Add cohort data if available
+        if cohort_data:
+            prompt += f"""
+CUSTOMER COHORTS DATA (from Customer Cohorts sheet):
+{json.dumps(cohort_data, indent=2)}
+"""
+        
+        # Add segment data if available
+        if segment_data:
+            prompt += f"""
+REVENUE BY SEGMENT DATA (from Revenue by Segment sheet):
+{json.dumps(segment_data, indent=2)}
+"""
+        
+        prompt += f"""
 STATISTICAL ANALYSIS:
 {json.dumps(statistical_analysis, indent=2)}
+
+NOTE: The statistical analysis above uses Week {week_number} as the current week. Ensure your insights and metrics reflect Week {week_number} specifically.
+
+CRITICAL INSTRUCTION FOR CHURN RATE:
+The churn_rate in the statistical analysis is {churn_rate:.4f} ({churn_rate * 100:.2f}%). This value is calculated correctly from the sheet data.
+You MUST use this exact value for "current_rate" in your churn_analysis. Do NOT recalculate churn_rate.
+The change_from_previous is {churn_change:.4f} ({churn_change * 100:.2f} percentage points).
 
 REQUIRED OUTPUT FORMAT (JSON):
 {{
@@ -631,9 +962,9 @@ REQUIRED OUTPUT FORMAT (JSON):
     "forecast_next_month": <number>
   }},
   "churn_analysis": {{
-    "current_rate": <decimal 0-1>,
-    "change_from_previous": <decimal>,
-    "severity": "<low|medium|high|critical>",
+    "current_rate": {churn_rate:.4f},  # MUST USE THIS EXACT VALUE - DO NOT RECALCULATE
+    "change_from_previous": {churn_change:.4f},  # MUST USE THIS EXACT VALUE - DO NOT RECALCULATE
+    "severity": "<low|medium|high|critical>",  # Based on current_rate value ({churn_rate * 100:.2f}%)
     "cohort_breakdown": {{
       "enterprise": {{"rate": <decimal>, "trend": "<string>"}},
       "smb": {{"rate": <decimal>, "trend": "<string>"}}
@@ -712,6 +1043,17 @@ INSTRUCTIONS:
 
 ANALYSIS TYPE: {analysis_type}
 
+CRITICAL INSTRUCTIONS:
+1. Your analysis MUST use the 'churn_rate' and 'churn_change_from_previous' values provided in the STATISTICAL ANALYSIS section for the 'churn_analysis' output. Do NOT recalculate or infer these values.
+2. Your analysis MUST focus on Week {week_number} specifically
+3. When mentioning weeks in your insights, always reference Week {week_number}
+4. The "current" metrics in your analysis should reflect Week {week_number} data
+5. Do NOT analyze other weeks - only Week {week_number}
+6. Format your insights as: "Week {week_number} [your insight here]"
+7. If CUSTOMER COHORTS DATA is provided above, use it to analyze cohort retention rates and trends
+8. If REVENUE BY SEGMENT DATA is provided above, use it to analyze segment breakdown and ARPU by segment
+9. Use cohort and segment data to provide more detailed insights in the 'churn_analysis.cohort_breakdown' and 'arpu_analysis.segmentation' fields
+
 Now provide the analysis for Week {week_number}:"""
         
         return prompt
@@ -746,12 +1088,14 @@ Now provide the analysis for Week {week_number}:"""
                 'trend': 'stable',
                 'forecast_next_month': statistical_analysis.get('current_mrr', 0) * 1.1
             }),
-            'churn_analysis': gemini_result.get('churn_analysis', {
+            'churn_analysis': {
+                # Always use statistical analysis churn_rate (calculated correctly from sheet)
                 'current_rate': statistical_analysis.get('churn_rate', 0),
-                'change_from_previous': 0,
-                'severity': 'low',
-                'cohort_breakdown': {}
-            }),
+                'change_from_previous': statistical_analysis.get('churn_change_from_previous', 0),
+                # Use Gemini's severity and cohort breakdown if available, otherwise defaults
+                'severity': gemini_result.get('churn_analysis', {}).get('severity', 'low'),
+                'cohort_breakdown': gemini_result.get('churn_analysis', {}).get('cohort_breakdown', {})
+            },
             'arpu_analysis': gemini_result.get('arpu_analysis', {
                 'current_arpu': statistical_analysis.get('avg_arpu'),
                 'segmentation': {},
@@ -874,6 +1218,76 @@ Now provide the analysis for Week {week_number}:"""
         
         return citations
     
+    def _filter_data_by_week(self, revenue_data: Dict[str, Any], week_number: int) -> Dict[str, Any]:
+        """
+        Filter revenue data to include only records for the specified week.
+        This ensures each week has a unique cache key.
+        
+        Args:
+            revenue_data: Full revenue data dictionary
+            week_number: Week number to filter by
+            
+        Returns:
+            Filtered revenue data dictionary
+        """
+        records = revenue_data.get('records', [])
+        filtered_records = [
+            record for record in records
+            if record.get('week') == week_number
+        ]
+        
+        return {
+            'records': filtered_records,
+            'total_records': len(filtered_records),
+            'week_number': week_number
+        }
+    
+    def _filter_data_for_analysis(self, revenue_data: Dict[str, Any], target_week: int) -> Dict[str, Any]:
+        """
+        Filter revenue data to include target week and previous weeks for context.
+        This ensures we analyze the correct week while maintaining historical context for trends.
+        
+        Args:
+            revenue_data: Full revenue data dictionary
+            target_week: Target week number to analyze
+            
+        Returns:
+            Filtered revenue data dictionary with target week and historical context
+        """
+        records = revenue_data.get('records', [])
+        # Include target week and all previous weeks (up to 12 weeks back for MoM calculations)
+        # STRICT filtering: only include weeks <= target_week
+        filtered_records = [
+            record for record in records
+            if record.get('week') is not None and isinstance(record.get('week'), (int, float)) and int(record.get('week')) <= target_week
+        ]
+        
+        # Sort by week to ensure proper ordering
+        filtered_records.sort(key=lambda x: int(x.get('week', 0)))
+        
+        # Log filtering for debugging
+        weeks_in_data = [int(r.get('week', 0)) for r in filtered_records if r.get('week')]
+        self.logger.info(
+            f"Filtered revenue data for Week {target_week} analysis. "
+            f"Weeks in filtered data: {weeks_in_data}. "
+            f"Total records: {len(filtered_records)}"
+        )
+        
+        # Verify target week is in the data
+        target_week_records = [r for r in filtered_records if int(r.get('week', 0)) == target_week]
+        if not target_week_records:
+            self.logger.warning(
+                f"WARNING: Week {target_week} not found in filtered data. "
+                f"Available weeks: {weeks_in_data}"
+            )
+        
+        return {
+            'records': filtered_records,
+            'total_records': len(filtered_records),
+            'target_week': target_week,
+            'weeks_included': weeks_in_data
+        }
+    
     def _hash_data(self, revenue_data: Dict[str, Any]) -> str:
         """Generate hash for data caching."""
         import hashlib
@@ -892,7 +1306,7 @@ Now provide the analysis for Week {week_number}:"""
             },
             'churn_analysis': {
                 'current_rate': statistical_analysis.get('churn_rate', 0),
-                'change_from_previous': 0,
+                'change_from_previous': statistical_analysis.get('churn_change_from_previous', 0),
                 'severity': 'low',
                 'cohort_breakdown': {}
             },

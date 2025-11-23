@@ -26,7 +26,7 @@ database:
 # Google Gemini Configuration
 gemini:
   api_key: "${GEMINI_API_KEY}"  # Load from environment variable
-  model: "gemini-1.0-pro"  # Using v1 API compatible model (gemini-1.5-flash requires v1 API, not v1beta)
+  model: "gemini-2.5-flash-lite"  # Using gemini-2.5-flash-lite (free tier: free of charge, will fallback to gemini-2.0-flash-lite or gemini-1.5-flash if unavailable)
   temperature: 0.7
   max_tokens: 2048
   timeout: 30
@@ -43,24 +43,31 @@ google_sheets:
   cache_ttl_hours: 1  # Cache TTL for sheet data
 
 # Sheet Configuration (Data Sources)
+# Google Sheets structure:
+# Revenue: "Weekly Revenue", "Customer Cohorts", "Revenue by Segment"
+# Product: "Engagement Metrics", "Feature Adoption", "User Journey Metrics"
+# Support: "Ticket Volume", "CSAT & Satisfaction", "Support Categories"
 sheets:
   revenue:
-    spreadsheet_id: "${REVENUE_SPREADSHEET_ID}"  # Example: "1abc..."
+    spreadsheet_id: "${REVENUE_SHEET_ID}"  # Example: "1abc..."
     ranges:
-      - "Revenue Metrics!A1:G100"
-      - "Churn Data!A1:E100"
+      - "Weekly Revenue!A1:N100"  # Main revenue data
+      - "Customer Cohorts!A1:K100"  # Cohort retention data
+      - "Revenue by Segment!A1:M100"  # Segment breakdown
   
   product:
-    spreadsheet_id: "${PRODUCT_SPREADSHEET_ID}"  # Example: "1def..."
+    spreadsheet_id: "${PRODUCT_SHEET_ID}"  # Example: "1def..."
     ranges:
-      - "DAU/WAU!A1:F100"
-      - "Feature Adoption!A1:H100"
+      - "Engagement Metrics!A1:M100"  # DAU/WAU/MAU data
+      - "Feature Adoption!A1:M100"  # Feature usage data
+      - "User Journey Metrics!A1:M100"  # Activation and onboarding
   
   support:
-    spreadsheet_id: "${SUPPORT_SPREADSHEET_ID}"  # Example: "1ghi..."
+    spreadsheet_id: "${SUPPORT_SHEET_ID}"  # Example: "1ghi..."
     ranges:
-      - "Ticket Volume!A1:E100"
-      - "CSAT Scores!A1:D50"
+      - "Ticket Volume!A1:N100"  # Main ticket data
+      - "CSAT & Satisfaction!A1:M100"  # CSAT and NPS data
+      - "Support Categories!A1:M100"  # Category breakdown
 
 # Cache Configuration
 cache:

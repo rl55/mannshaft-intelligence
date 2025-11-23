@@ -1,14 +1,10 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, ResponsiveContainer, LabelList } from "recharts"
-
-const data = [
-  { agent: "Revenue", hits: 1200 },
-  { agent: "Product", hits: 980 },
-  { agent: "Synthesizer", hits: 650 },
-]
+import { apiClient } from "@/lib/api"
 
 const chartConfig = {
   hits: {
@@ -18,6 +14,61 @@ const chartConfig = {
 }
 
 export function TopCachedAgentsChart() {
+  const [data, setData] = useState<Array<{ agent: string; hits: number }>>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const response = await apiClient.getTopCachedAgents(5, true)
+        const chartData = response.agents.map((agent) => ({
+          agent: agent.agent_type,
+          hits: agent.cache_hits,
+        }))
+        setData(chartData)
+      } catch (error) {
+        console.error("Error fetching top cached agents:", error)
+        setData([])
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchData()
+  }, [])
+
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Top Cached Agents</CardTitle>
+          <CardDescription>Agents with most cache hits</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+            Loading...
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (data.length === 0) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>Top Cached Agents</CardTitle>
+          <CardDescription>Agents with most cache hits</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[300px] flex items-center justify-center text-muted-foreground">
+            No data available
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <Card>
       <CardHeader>

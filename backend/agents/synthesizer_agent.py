@@ -74,6 +74,7 @@ class SynthesisOutput(BaseModel):
     strategic_recommendations: List[Dict[str, Any]] = Field(default_factory=list)
     key_metrics_summary: Dict[str, Any] = Field(default_factory=dict)
     external_validations: List[Dict[str, Any]] = Field(default_factory=list)
+    risk_flags: List[Dict[str, Any]] = Field(default_factory=list, description="Aggregated risk flags from all agents")
 
 
 # ============================================================================
@@ -191,6 +192,9 @@ class SynthesizerAgent(BaseAgent):
             # Step 9: Create key metrics summary
             key_metrics = self._create_metrics_summary(parsed_results)
             
+            # Step 9.5: Aggregate risk flags from all agents
+            risk_flags = self._aggregate_risk_flags(parsed_results)
+            
             # Step 10: Calculate confidence
             confidence = self._calculate_confidence(
                 parsed_results, correlations, root_causes
@@ -204,7 +208,8 @@ class SynthesizerAgent(BaseAgent):
                 root_causes=[rc.dict() if isinstance(rc, BaseModel) else rc for rc in root_causes],
                 strategic_recommendations=[r.dict() if isinstance(r, BaseModel) else r for r in recommendations],
                 key_metrics_summary=key_metrics,
-                external_validations=external_validations
+                external_validations=external_validations,
+                risk_flags=risk_flags
             )
             
             output_dict = output.dict()
@@ -737,6 +742,55 @@ Return ONLY the summary text, no JSON or markdown."""
             confidence *= 0.9
         
         return max(0.0, min(1.0, round(confidence, 2)))
+    
+    def _aggregate_risk_flags(self, parsed_results: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Aggregate risk flags from all analytical agents.
+        
+        Args:
+            parsed_results: Parsed results from all agents
+            
+        Returns:
+            List of risk flags with severity and description
+        """
+        risk_flags = []
+        
+        # Extract risk flags from each agent's analysis
+        for agent_type, agent_result in parsed_results.items():
+            if not isinstance(agent_result, dict):
+                continue
+                
+            analysis = agent_result.get('analysis', agent_result)
+            agent_risk_flags = analysis.get('risk_flags', [])
+            
+            # Process risk flags from this agent
+            for risk_flag in agent_risk_flags:
+                if isinstance(risk_flag, str):
+                    # Simple string risk flag
+                    risk_flags.append({
+                        'description': risk_flag,
+                        'severity': 'warning',
+                        'source': agent_type
+                    })
+                elif isinstance(risk_flag, dict):
+                    # Structured risk flag
+                    risk_flags.append({
+                        'description': risk_flag.get('description', risk_flag.get('flag', 'Unknown risk')),
+                        'severity': risk_flag.get('severity', 'warning'),
+                        'source': agent_type,
+                        'type': risk_flag.get('type')
+                    })
+        
+        # Deduplicate similar risk flags
+        seen_descriptions = set()
+        unique_risk_flags = []
+        for risk_flag in risk_flags:
+            desc_key = risk_flag['description'].lower().strip()
+            if desc_key not in seen_descriptions:
+                seen_descriptions.add(desc_key)
+                unique_risk_flags.append(risk_flag)
+        
+        return unique_risk_flags
     
     def _hash_results(self, parsed_results: Dict[str, Any]) -> str:
         """Generate hash for results caching."""

@@ -1,3 +1,6 @@
+"use client"
+
+import { useEffect, useState, use } from "react"
 import { ReportHeader } from "@/components/reports/report-header"
 import { ExecutiveSummary } from "@/components/reports/executive-summary"
 import { InsightsGrid } from "@/components/reports/insights-grid"
@@ -7,9 +10,12 @@ import { RiskFlags } from "@/components/reports/risk-flags"
 import { ExportActions } from "@/components/reports/export-actions"
 import type { ReportData } from "@/lib/report-types"
 import { DashboardHeader } from "@/components/dashboard-header"
+import { useAnalysisStore } from "@/store/analysis-store"
+import { transformAnalysisResultToReportData } from "@/lib/report-transform"
+import { toast } from "sonner"
 
-// Mock data function to simulate fetching a report
-const getReportData = (sessionId: string): ReportData => {
+// Mock data function as fallback
+const getMockReportData = (sessionId: string): ReportData => {
   return {
     sessionId,
     week: "Week 8",
@@ -101,14 +107,84 @@ const getReportData = (sessionId: string): ReportData => {
 }
 
 interface ReportPageProps {
-  params: {
+  params: Promise<{
     sessionId: string
-  }
+  }>
 }
 
 export default function ReportPage({ params }: ReportPageProps) {
-  // In a real app, this would be an async data fetch
-  const reportData = getReportData(params.sessionId)
+  // Unwrap params Promise using React.use()
+  const { sessionId } = use(params)
+  const { getAnalysisResult } = useAnalysisStore()
+  const [reportData, setReportData] = useState<ReportData | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    const fetchReport = async () => {
+      if (!sessionId) {
+        setIsLoading(false)
+        setError("Session ID is required")
+        return
+      }
+
+      try {
+        setIsLoading(true)
+        const result = await getAnalysisResult(sessionId)
+        
+        if (result) {
+          const transformed = transformAnalysisResultToReportData(result, sessionId)
+          setReportData(transformed)
+        } else {
+          // Fallback to mock data if result not found
+          setReportData(getMockReportData(sessionId))
+          toast.warning("Using sample data", {
+            description: "Report data not found. Showing sample data.",
+          })
+        }
+      } catch (err: any) {
+        console.error("Error fetching report:", err)
+        setError(err.message || "Failed to load report")
+        // Fallback to mock data on error
+        setReportData(getMockReportData(sessionId))
+        toast.error("Failed to load report", {
+          description: "Showing sample data instead.",
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchReport()
+  }, [sessionId, getAnalysisResult])
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-background font-sans antialiased">
+        <DashboardHeader />
+        <main className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-muted-foreground">Loading report...</p>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
+  if (!reportData) {
+    return (
+      <div className="min-h-screen bg-background font-sans antialiased">
+        <DashboardHeader />
+        <main className="flex items-center justify-center min-h-[60vh]">
+          <div className="text-center">
+            <p className="text-destructive">Failed to load report</p>
+            {error && <p className="text-muted-foreground mt-2">{error}</p>}
+          </div>
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-background font-sans antialiased">
@@ -116,36 +192,40 @@ export default function ReportPage({ params }: ReportPageProps) {
       <DashboardHeader />
 
       <main className="flex flex-col">
-        <ReportHeader
-          week={reportData.week}
-          date={reportData.date}
-          qualityScore={reportData.qualityScore}
-          confidence={reportData.confidence}
-          executionTime={reportData.executionTime}
-        />
+        <div id="report-content">
+          <ReportHeader
+            week={reportData.week}
+            date={reportData.date}
+            qualityScore={reportData.qualityScore}
+            confidence={reportData.confidence}
+            executionTime={reportData.executionTime}
+          />
 
-        <div className="container mx-auto space-y-8 px-4 py-8">
-          {/* Top Section: Summary & Risks */}
-          <div className="grid gap-6 lg:grid-cols-3">
-            <div className="lg:col-span-2">
-              <ExecutiveSummary summary={reportData.executiveSummary} />
+          <div className="container mx-auto space-y-8 px-4 py-8">
+            {/* Top Section: Summary & Risks */}
+            <div className="grid gap-6 lg:grid-cols-3">
+              <div className="lg:col-span-2">
+                <ExecutiveSummary summary={reportData.executiveSummary} />
+              </div>
+              <div className="lg:col-span-1">
+                <RiskFlags risks={reportData.risks} />
+              </div>
             </div>
-            <div className="lg:col-span-1">
-              <RiskFlags risks={reportData.risks} />
+
+            {/* Detailed Analysis Grid */}
+            <InsightsGrid insights={reportData.insights} />
+
+            {/* Cross-Functional & Strategic Section */}
+            <div className="grid gap-6 lg:grid-cols-2">
+              <CorrelationMatrix correlations={reportData.correlations} />
+              <RecommendationsList recommendations={reportData.recommendations} />
             </div>
           </div>
+        </div>
 
-          {/* Detailed Analysis Grid */}
-          <InsightsGrid insights={reportData.insights} />
-
-          {/* Cross-Functional & Strategic Section */}
-          <div className="grid gap-6 lg:grid-cols-2">
-            <CorrelationMatrix correlations={reportData.correlations} />
-            <RecommendationsList recommendations={reportData.recommendations} />
-          </div>
-
-          {/* Footer Actions */}
-          <ExportActions />
+        {/* Footer Actions */}
+        <div className="container mx-auto px-4 pb-8">
+          <ExportActions reportData={reportData} reportElementId="report-content" />
         </div>
       </main>
     </div>

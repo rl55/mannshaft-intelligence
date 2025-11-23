@@ -24,11 +24,17 @@ class Config:
     
     def _load_config(self):
         """Load configuration from config.yaml and environment variables."""
-        # Load environment variables from .env file
-        load_dotenv()
-        
         # Get project root directory
         project_root = Path(__file__).parent.parent
+        
+        # Load environment variables from .env file (in backend directory)
+        env_path = project_root / ".env"
+        if env_path.exists():
+            load_dotenv(dotenv_path=env_path)
+        else:
+            # Fallback to default dotenv behavior
+            load_dotenv()
+        
         config_path = project_root / "config.yaml"
         
         if not config_path.exists():
@@ -51,7 +57,13 @@ class Config:
                 return [replace_env_vars(item) for item in obj]
             elif isinstance(obj, str) and obj.startswith("${") and obj.endswith("}"):
                 env_var = obj[2:-1]
-                return os.getenv(env_var, obj)
+                env_value = os.getenv(env_var)
+                if env_value is None:
+                    # Log warning but keep placeholder to help identify missing env vars
+                    import warnings
+                    warnings.warn(f"Environment variable {env_var} not found, using placeholder")
+                    return obj  # Keep original placeholder
+                return env_value
             return obj
         
         self._config = replace_env_vars(self._config)

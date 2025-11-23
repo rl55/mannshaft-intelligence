@@ -106,6 +106,54 @@ class CachePerformanceResponse(BaseModel):
     period_days: int = Field(..., description="Period in days")
 
 
+class CacheHitRateDataPoint(BaseModel):
+    """Single data point for cache hit rate over time."""
+    date: str = Field(..., description="Date in YYYY-MM-DD format")
+    hit_rate: float = Field(..., ge=0.0, le=1.0, description="Hit rate for this day")
+
+
+class CacheHitRateOverTimeResponse(BaseModel):
+    """Response model for cache hit rate over time."""
+    data: List[CacheHitRateDataPoint] = Field(..., description="Daily hit rate data")
+    period_days: int = Field(..., description="Period in days")
+
+
+class CacheEntryResponse(BaseModel):
+    """Response model for a single cache entry."""
+    id: str = Field(..., description="Cache entry ID")
+    type: str = Field(..., description="Cache type: prompt, agent, or eval")
+    hits: int = Field(..., description="Number of cache hits")
+    last_accessed: str = Field(..., description="Last accessed timestamp")
+    ttl: str = Field(..., description="Time to live remaining")
+    created_at: str = Field(..., description="Creation timestamp")
+
+
+class CacheEntriesResponse(BaseModel):
+    """Response model for cache entries list."""
+    entries: List[CacheEntryResponse] = Field(..., description="List of cache entries")
+    total: int = Field(..., description="Total number of entries")
+    page: int = Field(..., description="Current page number")
+    page_size: int = Field(..., description="Page size")
+
+
+class CacheTypeDistributionResponse(BaseModel):
+    """Response model for cache type distribution."""
+    prompt: int = Field(..., description="Number of prompt cache entries")
+    agent: int = Field(..., description="Number of agent cache entries")
+    eval: int = Field(..., description="Number of eval cache entries")
+
+
+class TopCachedAgentResponse(BaseModel):
+    """Response model for top cached agent."""
+    agent_type: str = Field(..., description="Agent type")
+    cache_hits: int = Field(..., description="Number of cache hits")
+
+
+class TopCachedAgentsResponse(BaseModel):
+    """Response model for top cached agents."""
+    agents: List[TopCachedAgentResponse] = Field(..., description="List of top cached agents")
+
+
 class AgentPerformanceResponse(BaseModel):
     """Response model for agent performance."""
     agent_type: str = Field(..., description="Agent type")
@@ -157,6 +205,10 @@ class HITLPendingResponse(BaseModel):
     risk_score: float = Field(..., ge=0.0, le=1.0, description="Risk score")
     created_at: datetime = Field(..., description="Creation timestamp")
     review_url: Optional[str] = Field(None, description="Review URL")
+    status: Optional[str] = Field(None, description="Request status")
+    human_decision: Optional[str] = Field(None, description="Human decision if resolved")
+    human_feedback: Optional[str] = Field(None, description="Human feedback if resolved")
+    resolved_at: Optional[datetime] = Field(None, description="Resolution timestamp")
 
 
 class HealthResponse(BaseModel):

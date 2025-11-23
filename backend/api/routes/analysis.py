@@ -19,14 +19,19 @@ from api.models.responses import (
 )
 from agents.orchestrator import OrchestratorAgent, AnalysisType
 from cache.cache_manager import CacheManager
+from database.db_manager import get_db_manager, DatabaseManager
 from utils.logger import logger
 from utils.config import config
 
 router = APIRouter()
 
-# In-memory storage for analysis status (in production, use Redis or database)
-_analysis_status: Dict[str, Dict[str, Any]] = {}
-_websocket_connections: Dict[str, list] = {}  # session_id -> [websockets]
+# In-memory storage for WebSocket connections (session_id -> [websockets])
+_websocket_connections: Dict[str, list] = {}
+
+
+def get_db() -> DatabaseManager:
+    """Get database manager instance."""
+    return get_db_manager()
 
 
 def serialize_for_json(obj: Any) -> Any:
@@ -65,7 +70,8 @@ async def run_analysis(
     analysis_type: str,
     user_id: str,
     agent_types: Optional[list],
-    cache_manager: CacheManager
+    cache_manager: CacheManager,
+    db_manager: DatabaseManager
 ):
     """
     Run analysis in background task.
@@ -77,15 +83,16 @@ async def run_analysis(
         user_id: User identifier
         agent_types: Optional list of agent types
         cache_manager: Cache manager instance
+        db_manager: Database manager instance
     """
     try:
-        # Update status to running
-        _analysis_status[session_id] = {
-            'status': 'running',
-            'progress': 0,
-            'current_step': 'Initializing',
-            'started_at': datetime.utcnow()
-        }
+        # Update status to running in database
+        db_manager.update_session_status(
+            session_id=session_id,
+            status='running',
+            progress=0,
+            current_step='Initializing'
+        )
         
         # Emit WebSocket event
         await emit_websocket_event(session_id, {
@@ -102,9 +109,13 @@ async def run_analysis(
         # Map analysis type to string (orchestrator expects string, not enum)
         analysis_type_str = analysis_type  # Use the string directly
         
-        # Update progress
-        _analysis_status[session_id]['progress'] = 10
-        _analysis_status[session_id]['current_step'] = 'Executing analytical agents'
+        # Update progress in database
+        db_manager.update_session_status(
+            session_id=session_id,
+            status='running',
+            progress=10,
+            current_step='Executing analytical agents'
+        )
         await emit_websocket_event(session_id, {
             'type': 'progress_update',
             'session_id': session_id,
@@ -112,18 +123,46 @@ async def run_analysis(
             'message': 'Executing analytical agents'
         })
         
+        # Emit agent_started events for each agent that will run
+        # Based on analysis_type, determine which agents will run
+        agent_types_map = {
+            'comprehensive': ['revenue', 'product', 'support'],
+            'mrr_only': ['revenue'],
+            'churn_only': ['revenue'],
+            'arpu_only': ['revenue'],
+            'product_only': ['product'],
+            'support_only': ['support'],
+        }
+        agents_to_run = agent_types_map.get(analysis_type_str, ['revenue', 'product', 'support'])
+        
+        for agent_type in agents_to_run:
+            await emit_websocket_event(session_id, {
+                'type': 'agent_started',
+                'session_id': session_id,
+                'agent': agent_type,
+                'progress': 10,
+                'message': f'{agent_type.capitalize()} agent started',
+                'timestamp': datetime.utcnow().isoformat()
+            })
+        
         # Run analysis (orchestrator determines agent types internally based on analysis_type)
+        # Pass the session_id to orchestrator so it uses the same session for WebSocket events
         # Note: Progress updates during analysis would require modifying orchestrator to emit events
         # For now, we emit updates at key milestones
         result = await orchestrator.analyze_week(
             week_number=week_number,
             analysis_type=analysis_type_str,
-            user_id=user_id
+            user_id=user_id,
+            session_id=session_id  # Pass session_id so orchestrator uses the same session
         )
         
         # Update progress - analysis complete, processing results
-        _analysis_status[session_id]['progress'] = 90
-        _analysis_status[session_id]['current_step'] = 'Processing results'
+        db_manager.update_session_status(
+            session_id=session_id,
+            status='running',
+            progress=90,
+            current_step='Processing results'
+        )
         await emit_websocket_event(session_id, {
             'type': 'progress_update',
             'session_id': session_id,
@@ -140,25 +179,122 @@ async def run_analysis(
             except (json.JSONDecodeError, TypeError):
                 report_data = {'text': report_data}
         
-        # Update status to completed
-        _analysis_status[session_id] = {
-            'status': 'completed',
+        # Emit agent_completed events for each agent that was executed
+        # Extract confidence scores and insights from analytical_results metadata
+        analytical_results = result.metadata.get('analytical_results', {})
+        
+        for agent_type in result.agents_executed:
+            # Get confidence score from analytical_results (0-1 range)
+            agent_result = analytical_results.get(agent_type, {})
+            confidence_score = agent_result.get('confidence_score', 0.85)
+            
+            # Extract key insights from agent response
+            key_insights = []
+            try:
+                agent_response = agent_result.get('response', '{}')
+                if isinstance(agent_response, str):
+                    import json
+                    response_data = json.loads(agent_response)
+                else:
+                    response_data = agent_response
+                
+                # Extract insights from analysis (structure varies by agent)
+                analysis = response_data.get('analysis', {})
+                if isinstance(analysis, dict):
+                    key_insights = analysis.get('key_insights', [])
+                    if not key_insights:
+                        # Try direct access if analysis is nested differently
+                        key_insights = response_data.get('key_insights', [])
+            except (json.JSONDecodeError, TypeError, AttributeError) as e:
+                logger.debug(f"Could not extract insights for {agent_type}: {e}")
+                key_insights = []
+            
+            # Send agent_started event first
+            await emit_websocket_event(session_id, {
+                'type': 'agent_started',
+                'session_id': session_id,
+                'agent': agent_type,
+                'progress': 10,
+                'message': f'Analyzing {agent_type} data...',
+                'timestamp': datetime.utcnow().isoformat()
+            })
+            
+            # Send key insights as progress updates
+            for insight in key_insights[:3]:  # Send top 3 insights
+                await emit_websocket_event(session_id, {
+                    'type': 'progress_update',
+                    'session_id': session_id,
+                    'agent': agent_type,
+                    'progress': 50,
+                    'message': insight if isinstance(insight, str) else insight.get('description', str(insight)),
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+            
+            # Send completion event
+            await emit_websocket_event(session_id, {
+                'type': 'agent_completed',
+                'session_id': session_id,
+                'agent': agent_type,
+                'progress': 90,
+                'message': f'{agent_type.capitalize()} agent completed',
+                'data': {
+                    'confidence': confidence_score  # Send as decimal (0-1)
+                },
+                'timestamp': datetime.utcnow().isoformat()
+            })
+        
+        # Also emit completion event for governance agent (guardrails always run)
+        # Governance agent confidence is based on guardrail violations (1.0 if no violations)
+        governance_confidence = 1.0 if result.guardrail_violations == 0 else max(0.5, 1.0 - (result.guardrail_violations * 0.1))
+        await emit_websocket_event(session_id, {
+            'type': 'agent_completed',
+            'session_id': session_id,
+            'agent': 'governance',
             'progress': 100,
-            'current_step': 'Completed',
-            'result': {
-                'session_id': result.session_id,
-                'week_number': week_number,
-                'report': report_data,
-                'quality_score': result.quality_score,
-                'execution_time_ms': result.execution_time_ms,
-                'cache_efficiency': result.cache_efficiency,
-                'agents_executed': result.agents_executed,
-                'hitl_escalations': result.hitl_escalations,
-                'guardrail_violations': result.guardrail_violations,
-                'generated_at': datetime.utcnow().isoformat(),
-                'metadata': result.metadata
+            'message': 'Governance agent completed',
+            'data': {
+                'confidence': governance_confidence  # Send as decimal (0-1)
             },
-            'completed_at': datetime.utcnow()
+            'timestamp': datetime.utcnow().isoformat()
+        })
+        
+        # Save analysis result to database
+        db_manager.save_analysis_result(
+            session_id=result.session_id,
+            report=report_data,
+            quality_score=result.quality_score,
+            execution_time_ms=result.execution_time_ms,
+            cache_efficiency=result.cache_efficiency,
+            agents_executed=result.agents_executed,
+            hitl_escalations=result.hitl_escalations,
+            guardrail_violations=result.guardrail_violations,
+            evaluation_passed=result.evaluation_passed,
+            regeneration_count=result.regeneration_count,
+            metadata=result.metadata
+        )
+        
+        # Update status to completed
+        db_manager.update_session_status(
+            session_id=session_id,
+            status='completed',
+            progress=100,
+            current_step='Completed'
+        )
+        
+        # Get the saved result for WebSocket event
+        saved_result = db_manager.get_analysis_result(session_id)
+        result_data = {
+            'session_id': result.session_id,
+            'week_number': week_number,
+            'report': saved_result['report'] if saved_result else report_data,
+            'quality_score': result.quality_score,
+            'execution_time_ms': result.execution_time_ms,
+            'cache_efficiency': result.cache_efficiency,
+            'agents_executed': result.agents_executed,
+            'hitl_escalations': result.hitl_escalations,
+            'guardrail_violations': result.guardrail_violations,
+            'generated_at': datetime.utcnow().isoformat(),
+            'metadata': result.metadata
         }
         
         # Emit completion event
@@ -167,19 +303,19 @@ async def run_analysis(
             'session_id': session_id,
             'progress': 100,
             'message': 'Analysis completed successfully',
-            'result': _analysis_status[session_id]['result']
+            'result': result_data
         })
         
     except Exception as e:
         logger.error(f"Error in background analysis: {e}", exc_info=True)
         
-        # Update status to failed
-        _analysis_status[session_id] = {
-            'status': 'failed',
-            'progress': 0,
-            'error_message': str(e),
-            'failed_at': datetime.utcnow()
-        }
+        # Update status to failed in database
+        db_manager.update_session_status(
+            session_id=session_id,
+            status='failed',
+            progress=0,
+            error_message=str(e)
+        )
         
         # Emit error event
         await emit_websocket_event(session_id, {
@@ -193,10 +329,11 @@ async def run_analysis(
 
 async def emit_websocket_event(session_id: str, event: Dict[str, Any]):
     """Emit WebSocket event to all connected clients for a session."""
-    if session_id in _websocket_connections:
+    if session_id in _websocket_connections and len(_websocket_connections[session_id]) > 0:
         disconnected = []
         # Serialize event data to ensure datetime objects are converted
         serialized_event = serialize_for_json(event)
+        logger.debug(f"Emitting WebSocket event for session {session_id}: {event.get('type')} (progress: {event.get('progress')})")
         for websocket in _websocket_connections[session_id]:
             try:
                 await websocket.send_json(serialized_event)
@@ -207,13 +344,16 @@ async def emit_websocket_event(session_id: str, event: Dict[str, Any]):
         # Remove disconnected websockets
         for ws in disconnected:
             _websocket_connections[session_id].remove(ws)
+    else:
+        logger.debug(f"No WebSocket connections for session {session_id}, event not sent: {event.get('type')} (progress: {event.get('progress')})")
 
 
 @router.post("/trigger", response_model=AnalysisResponse)
 async def trigger_analysis(
     request: AnalysisRequest,
     background_tasks: BackgroundTasks,
-    cache_manager: CacheManager = Depends(get_cache_manager)
+    cache_manager: CacheManager = Depends(get_cache_manager),
+    db_manager: DatabaseManager = Depends(get_db)
 ):
     """
     Trigger a new analysis.
@@ -221,18 +361,20 @@ async def trigger_analysis(
     Creates a session and queues analysis in background.
     """
     try:
-        # Create session
+        # Create session in cache manager (for agent caching)
         session_id = cache_manager.create_session(
             session_type=f"weekly_analysis_{request.analysis_type}",
             user_id=request.user_id
         )
         
-        # Initialize status
-        _analysis_status[session_id] = {
-            'status': 'queued',
-            'progress': 0,
-            'created_at': datetime.utcnow()
-        }
+        # Create session in database
+        db_manager.create_session(
+            session_id=session_id,
+            session_type=f"weekly_analysis_{request.analysis_type}",
+            user_id=request.user_id,
+            week_number=request.week_number,
+            analysis_type=request.analysis_type
+        )
         
         # Queue analysis in background
         background_tasks.add_task(
@@ -242,7 +384,8 @@ async def trigger_analysis(
             analysis_type=request.analysis_type,
             user_id=request.user_id,
             agent_types=request.agent_types,
-            cache_manager=cache_manager
+            cache_manager=cache_manager,
+            db_manager=db_manager
         )
         
         return AnalysisResponse(
@@ -260,7 +403,7 @@ async def trigger_analysis(
 @router.get("/{session_id}", response_model=AnalysisResult)
 async def get_analysis_result(
     session_id: str,
-    cache_manager: CacheManager = Depends(get_cache_manager)
+    db_manager: DatabaseManager = Depends(get_db)
 ):
     """
     Get analysis result by session ID.
@@ -268,20 +411,34 @@ async def get_analysis_result(
     Returns the complete analysis result if available.
     """
     try:
-        if session_id not in _analysis_status:
+        session = db_manager.get_session(session_id)
+        if not session:
             raise HTTPException(status_code=404, detail="Analysis not found")
         
-        status = _analysis_status[session_id]
-        
-        if status['status'] != 'completed':
+        if session.get('current_status') != 'completed':
             raise HTTPException(
                 status_code=400,
-                detail=f"Analysis not completed. Status: {status['status']}"
+                detail=f"Analysis not completed. Status: {session.get('current_status')}"
             )
         
-        result_data = status['result']
+        result_data = db_manager.get_analysis_result(session_id)
+        if not result_data:
+            raise HTTPException(status_code=404, detail="Analysis result not found")
         
-        return AnalysisResult(**result_data)
+        # Convert to AnalysisResult format
+        return AnalysisResult(
+            session_id=session_id,
+            week_number=session.get('week_number', 0),
+            report=result_data['report'],
+            quality_score=result_data['quality_score'],
+            execution_time_ms=result_data['execution_time_ms'],
+            cache_efficiency=result_data['cache_efficiency'],
+            agents_executed=result_data['agents_executed'],
+            hitl_escalations=result_data['hitl_escalations'],
+            guardrail_violations=result_data['guardrail_violations'],
+            generated_at=datetime.fromisoformat(result_data['generated_at']) if isinstance(result_data['generated_at'], str) else result_data['generated_at'],
+            metadata=result_data.get('metadata')
+        )
         
     except HTTPException:
         raise
@@ -291,36 +448,56 @@ async def get_analysis_result(
 
 
 @router.get("/{session_id}/status", response_model=AnalysisStatusResponse)
-async def get_analysis_status(session_id: str):
+async def get_analysis_status(
+    session_id: str,
+    db_manager: DatabaseManager = Depends(get_db)
+):
     """
     Get analysis status by session ID.
     
     Returns current status, progress, and estimated time remaining.
     """
     try:
-        if session_id not in _analysis_status:
-            raise HTTPException(status_code=404, detail="Analysis not found")
+        status_data = db_manager.get_session_status(session_id)
+        if not status_data:
+            logger.debug(f"Session status not found for {session_id}")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Analysis session '{session_id}' not found. Status may have been cleared or session expired."
+            )
         
-        status = _analysis_status[session_id]
+        # Build response
+        response_data = {
+            'session_id': session_id,
+            'status': status_data['status'],
+            'progress': status_data.get('progress', 0),
+            'current_step': status_data.get('current_step'),
+            'estimated_time_remaining_seconds': status_data.get('estimated_time_remaining_seconds')
+        }
         
-        # Calculate estimated time remaining
-        estimated_time = None
-        if status['status'] == 'running' and 'started_at' in status:
-            elapsed = (datetime.utcnow() - status['started_at']).total_seconds()
-            progress = status.get('progress', 0)
-            if progress > 0:
-                total_estimated = elapsed / (progress / 100)
-                estimated_time = int(total_estimated - elapsed)
+        # Include result if completed
+        if status_data['status'] == 'completed' and status_data.get('result'):
+            result = status_data['result']
+            session = db_manager.get_session(session_id)
+            response_data['result'] = AnalysisResult(
+                session_id=session_id,
+                week_number=session.get('week_number', 0) if session else 0,
+                report=result['report'],
+                quality_score=result['quality_score'],
+                execution_time_ms=result['execution_time_ms'],
+                cache_efficiency=result['cache_efficiency'],
+                agents_executed=result['agents_executed'],
+                hitl_escalations=result['hitl_escalations'],
+                guardrail_violations=result['guardrail_violations'],
+                generated_at=datetime.fromisoformat(result['generated_at']) if isinstance(result['generated_at'], str) else result['generated_at'],
+                metadata=result.get('metadata')
+            )
+        elif status_data['status'] == 'failed':
+            session = db_manager.get_session(session_id)
+            if session and session.get('error_message'):
+                response_data['error_message'] = session['error_message']
         
-        return AnalysisStatusResponse(
-            session_id=session_id,
-            status=status['status'],
-            progress=status.get('progress', 0),
-            current_step=status.get('current_step'),
-            estimated_time_remaining_seconds=estimated_time,
-            error_message=status.get('error_message'),
-            result=AnalysisResult(**status['result']) if status.get('result') else None
-        )
+        return AnalysisStatusResponse(**response_data)
         
     except HTTPException:
         raise
@@ -337,21 +514,146 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     Clients can subscribe to session-specific updates.
     """
     await websocket.accept()
+    logger.info(f"WebSocket connection established for session {session_id}")
     
     # Add to connections
     if session_id not in _websocket_connections:
         _websocket_connections[session_id] = []
     _websocket_connections[session_id].append(websocket)
+    logger.info(f"WebSocket added to connections. Total connections for {session_id}: {len(_websocket_connections[session_id])}")
     
     try:
+        # Get database manager
+        db_manager = get_db_manager()
+        
         # Send initial status if available
-        if session_id in _analysis_status:
-            status_data = serialize_for_json(_analysis_status[session_id])
-            await websocket.send_json({
-                'event': 'status_update',
+        status_data = db_manager.get_session_status(session_id)
+        if status_data:
+            status = status_data
+            # Send initial status in the format expected by frontend
+            status_type = status.get('status', 'unknown')
+            progress = status.get('progress', 0)
+            
+            # Map status to appropriate event type
+            if status_type == 'completed':
+                event_type = 'completed'
+            elif status_type == 'failed':
+                event_type = 'error'
+            else:
+                event_type = 'progress_update'
+            
+            initial_event = {
+                'type': event_type,
                 'session_id': session_id,
-                'status': status_data
-            })
+                'progress': progress,
+                'message': status.get('current_step') or f"Status: {status_type}",
+                'timestamp': datetime.utcnow().isoformat()
+            }
+            logger.info(f"Sending initial status to WebSocket for session {session_id}: {event_type} (progress: {progress})")
+            await websocket.send_json(initial_event)
+            
+            # If analysis is completed, also send agent_completed events for all executed agents
+            if status_type == 'completed' and status.get('result'):
+                result = status['result']
+                agents_executed = result.get('agents_executed', [])
+                metadata = result.get('metadata', {})
+                analytical_results = metadata.get('analytical_results', {}) if metadata else {}
+                guardrail_violations = result.get('guardrail_violations', 0)
+                
+                logger.info(f"Sending agent_completed events for {len(agents_executed)} agents: {agents_executed}")
+                for agent_type in agents_executed:
+                    # Get confidence score from analytical_results (0-1 range)
+                    agent_result = analytical_results.get(agent_type, {})
+                    confidence_score = agent_result.get('confidence_score', 0.85)
+                    
+                    # Extract key insights from agent response
+                    key_insights = []
+                    try:
+                        agent_response = agent_result.get('response', '{}')
+                        if isinstance(agent_response, str):
+                            response_data = json.loads(agent_response)
+                        else:
+                            response_data = agent_response
+                        
+                        # Extract insights from analysis (structure varies by agent)
+                        analysis = response_data.get('analysis', {})
+                        if isinstance(analysis, dict):
+                            key_insights = analysis.get('key_insights', [])
+                            if not key_insights:
+                                # Try direct access if analysis is nested differently
+                                key_insights = response_data.get('key_insights', [])
+                    except (json.JSONDecodeError, TypeError, AttributeError) as e:
+                        logger.debug(f"Could not extract insights for {agent_type}: {e}")
+                        key_insights = []
+                    
+                    # Send agent_started event first
+                    await websocket.send_json({
+                        'type': 'agent_started',
+                        'session_id': session_id,
+                        'agent': agent_type,
+                        'progress': 10,
+                        'message': f'Analyzing {agent_type} data...',
+                        'timestamp': datetime.utcnow().isoformat()
+                    })
+                    
+                    # Send key insights as progress updates
+                    for insight in key_insights[:3]:  # Send top 3 insights
+                        insight_text = insight if isinstance(insight, str) else insight.get('description', str(insight))
+                        await websocket.send_json({
+                            'type': 'progress_update',
+                            'session_id': session_id,
+                            'agent': agent_type,
+                            'progress': 50,
+                            'message': insight_text,
+                            'timestamp': datetime.utcnow().isoformat()
+                        })
+                    
+                    # Send completion event
+                    await websocket.send_json({
+                        'type': 'agent_completed',
+                        'session_id': session_id,
+                        'agent': agent_type,
+                        'progress': 100,
+                        'message': f'{agent_type.capitalize()} agent completed',
+                        'data': {
+                            'confidence': confidence_score  # Send as decimal (0-1)
+                        },
+                        'timestamp': datetime.utcnow().isoformat()
+                    })
+                    logger.debug(f"Sent agent events for {agent_type} with confidence {confidence_score:.2f} ({int(confidence_score * 100)}%) and {len(key_insights)} insights")
+                
+                # Also send completion event for governance agent
+                governance_confidence = 1.0 if guardrail_violations == 0 else max(0.5, 1.0 - (guardrail_violations * 0.1))
+                await websocket.send_json({
+                    'type': 'agent_started',
+                    'session_id': session_id,
+                    'agent': 'governance',
+                    'progress': 90,
+                    'message': 'Verifying compliance with safety guardrails...',
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+                await websocket.send_json({
+                    'type': 'progress_update',
+                    'session_id': session_id,
+                    'agent': 'governance',
+                    'progress': 95,
+                    'message': 'PII Check: Passed' if guardrail_violations == 0 else f'Found {guardrail_violations} guardrail violation(s)',
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+                await websocket.send_json({
+                    'type': 'agent_completed',
+                    'session_id': session_id,
+                    'agent': 'governance',
+                    'progress': 100,
+                    'message': 'Final report approved for distribution' if guardrail_violations == 0 else 'Report requires review',
+                    'data': {
+                        'confidence': governance_confidence  # Send as decimal (0-1)
+                    },
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+                logger.debug(f"Sent governance agent events with confidence {governance_confidence:.2f} ({int(governance_confidence * 100)}%)")
+        else:
+            logger.debug(f"No status found for session {session_id} when WebSocket connected")
         
         # Keep connection alive and handle messages
         while True:

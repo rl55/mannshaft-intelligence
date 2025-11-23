@@ -59,7 +59,11 @@ async def get_pending_hitl_requests(
                     escalation_reason=req.get('reason', ''),
                     risk_score=context.get('risk_score', 0.0) if isinstance(context, dict) else 0.0,
                     created_at=datetime.fromisoformat(req['timestamp']) if isinstance(req.get('timestamp'), str) else datetime.utcnow(),
-                    review_url=context.get('review_url') if isinstance(context, dict) else None
+                    review_url=context.get('review_url') if isinstance(context, dict) else None,
+                    status=req.get('status', 'pending'),
+                    human_decision=req.get('human_decision'),
+                    human_feedback=req.get('human_feedback'),
+                    resolved_at=datetime.fromisoformat(req['resolved_at']) if req.get('resolved_at') else None
                 )
             )
         
@@ -67,6 +71,64 @@ async def get_pending_hitl_requests(
         
     except Exception as e:
         logger.error(f"Error getting pending HITL requests: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/all", response_model=List[HITLPendingResponse])
+async def get_all_hitl_requests(
+    limit: int = 50,
+    include_resolved: bool = True,
+    hitl_manager: HITLManager = Depends(get_hitl_manager)
+):
+    """
+    Get all HITL requests (including resolved ones with decisions and feedback).
+    
+    Args:
+        limit: Maximum number of requests to return
+        include_resolved: Whether to include resolved requests
+        
+    Returns:
+        List of all HITL requests with decisions and feedback
+    """
+    try:
+        requests = hitl_manager.get_all_requests(limit=limit, include_resolved=include_resolved)
+        
+        all_responses = []
+        for req in requests:
+            context = req.get('context', {})
+            if isinstance(context, str):
+                import json
+                try:
+                    context = json.loads(context)
+                except json.JSONDecodeError:
+                    context = {}
+            
+            resolved_at = None
+            if req.get('resolved_at'):
+                try:
+                    resolved_at = datetime.fromisoformat(req['resolved_at'])
+                except (ValueError, TypeError):
+                    pass
+            
+            all_responses.append(
+                HITLPendingResponse(
+                    request_id=req.get('request_id', ''),
+                    session_id=req.get('trace_id', ''),
+                    escalation_reason=req.get('reason', ''),
+                    risk_score=context.get('risk_score', 0.0) if isinstance(context, dict) else 0.0,
+                    created_at=datetime.fromisoformat(req['timestamp']) if isinstance(req.get('timestamp'), str) else datetime.utcnow(),
+                    review_url=context.get('review_url') if isinstance(context, dict) else None,
+                    status=req.get('status', 'pending'),
+                    human_decision=req.get('human_decision'),
+                    human_feedback=req.get('human_feedback'),
+                    resolved_at=resolved_at
+                )
+            )
+        
+        return all_responses
+        
+    except Exception as e:
+        logger.error(f"Error getting all HITL requests: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -109,7 +171,7 @@ async def resolve_hitl_request(
                 human_reviewer=request.human_reviewer
             )
         elif request.decision == 'rejected':
-            if not request.feedback:
+            if not request.feedback or (isinstance(request.feedback, str) and not request.feedback.strip()):
                 raise HTTPException(
                     status_code=400,
                     detail="Feedback is required for rejection"

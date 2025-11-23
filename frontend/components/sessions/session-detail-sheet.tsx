@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import Link from "next/link"
 import type { SessionDetail, AgentExecutionMetric } from "./types"
 
 interface SessionDetailSheetProps {
@@ -17,11 +18,11 @@ export function SessionDetailSheet({ session, isOpen, onClose }: SessionDetailSh
 
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
-      <SheetContent side="right" className="w-[400px] sm:w-[540px]">
-        <SheetHeader>
+      <SheetContent side="right" className="!w-[600px] sm:!w-[800px] sm:!max-w-[800px]">
+        <SheetHeader className="px-6 pb-4">
           <div className="flex items-center justify-between">
             <SheetTitle>Session {session.id}</SheetTitle>
-            <Badge variant="outline" className="mr-6">
+            <Badge variant="outline">
               Week {session.week}
             </Badge>
           </div>
@@ -30,8 +31,8 @@ export function SessionDetailSheet({ session, isOpen, onClose }: SessionDetailSh
           </SheetDescription>
         </SheetHeader>
 
-        <ScrollArea className="h-[calc(100vh-200px)] pr-4">
-          <div className="mt-6 space-y-6">
+        <ScrollArea className="h-[calc(100vh-200px)] px-6">
+          <div className="mt-4 space-y-6">
             {/* High Level Stats */}
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-muted/50 rounded-lg p-3">
@@ -107,7 +108,7 @@ export function SessionDetailSheet({ session, isOpen, onClose }: SessionDetailSh
           </div>
         </ScrollArea>
 
-        <SheetFooter className="absolute bottom-0 left-0 right-0 border-t bg-background p-4">
+        <SheetFooter className="absolute bottom-0 left-0 right-0 border-t bg-background px-6 py-4">
           <div className="flex w-full justify-between gap-2 sm:justify-end">
             <Button variant="outline" size="sm">
               <Download className="mr-2 h-4 w-4" />
@@ -117,9 +118,11 @@ export function SessionDetailSheet({ session, isOpen, onClose }: SessionDetailSh
               <RefreshCw className="mr-2 h-4 w-4" />
               Re-run
             </Button>
-            <Button size="sm">
-              <FileText className="mr-2 h-4 w-4" />
-              View Report
+            <Button size="sm" asChild>
+              <Link href={`/reports/${session.id}`}>
+                <FileText className="mr-2 h-4 w-4" />
+                View Report
+              </Link>
             </Button>
           </div>
         </SheetFooter>

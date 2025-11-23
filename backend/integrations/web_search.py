@@ -137,7 +137,58 @@ class WebSearchClient:
         async with aiohttp.ClientSession() as session:
             async with session.get(url) as response:
                 response.raise_for_status()
-                data = await response.json()
+                
+                # Check content type - DuckDuckGo sometimes returns JavaScript instead of JSON
+                content_type = response.headers.get('Content-Type', '').lower()
+                
+                if 'application/json' in content_type or 'text/json' in content_type:
+                    # Standard JSON response
+                    data = await response.json()
+                elif 'javascript' in content_type or 'x-javascript' in content_type:
+                    # DuckDuckGo returned JavaScript (JSONP) - try to extract JSON
+                    text = await response.text()
+                    # Try to find JSON in the JavaScript response
+                    # Sometimes it's wrapped in a callback function like: ddg_jsonp_callback({...})
+                    import re
+                    json_match = re.search(r'\{.*\}', text, re.DOTALL)
+                    if json_match:
+                        try:
+                            import json as json_lib
+                            data = json_lib.loads(json_match.group())
+                        except:
+                            # If parsing fails, return empty results
+                            self.logger.warning(f"DuckDuckGo returned JavaScript but couldn't parse JSON: {text[:200]}")
+                            return {
+                                'query': query,
+                                'results': [],
+                                'total_results': 0,
+                                'source': 'duckduckgo',
+                                'error': 'Could not parse DuckDuckGo response'
+                            }
+                    else:
+                        # No JSON found in response
+                        self.logger.warning(f"DuckDuckGo returned JavaScript but no JSON found: {text[:200]}")
+                        return {
+                            'query': query,
+                            'results': [],
+                            'total_results': 0,
+                            'source': 'duckduckgo',
+                            'error': 'DuckDuckGo returned unexpected format'
+                        }
+                else:
+                    # Try to parse as JSON anyway, but handle errors gracefully
+                    try:
+                        data = await response.json()
+                    except Exception as e:
+                        text = await response.text()
+                        self.logger.warning(f"DuckDuckGo returned unexpected content type {content_type}: {text[:200]}")
+                        return {
+                            'query': query,
+                            'results': [],
+                            'total_results': 0,
+                            'source': 'duckduckgo',
+                            'error': f'Unexpected content type: {content_type}'
+                        }
                 
                 results = []
                 

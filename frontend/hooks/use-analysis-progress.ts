@@ -118,13 +118,25 @@ export function useAnalysisProgress(
             timestamp: data.timestamp || Date.now(),
           };
 
+          console.log("WebSocket event received:", {
+            type: data.type,
+            progress: data.progress,
+            message: data.message,
+            sessionId,
+          });
+
           setEvents((prev) => [...prev, eventWithTimestamp]);
           setProgress(data.progress || 0);
 
           // Handle completion
           if (data.type === "completed" || data.progress >= 100) {
-            setIsConnected(false);
+            console.log("Analysis completed via WebSocket");
+            // Call completion callback but keep connection open
+            // The UI will show "Completed" status instead of "Disconnected"
             onComplete?.();
+            // Don't close the connection immediately - let it stay open
+            // The connection will close naturally when component unmounts
+            // This way the UI can show "Completed" instead of "Disconnected"
           }
         } catch (error) {
           console.error("Failed to parse WebSocket message:", error, event.data);
@@ -270,8 +282,19 @@ export function useAnalysisProgress(
           // Try to get session status to verify it exists
           await apiClient.getAnalysisStatus(sessionId);
           console.log("Session verified, connecting WebSocket...");
-        } catch (error) {
-          console.warn("Session may not exist yet, will retry:", error);
+        } catch (error: any) {
+          // Handle 404s silently - session might not be initialized yet
+          if (error?.statusCode === 404) {
+            // Silently retry connection after delay (session might be initializing)
+            if (isMounted) {
+              initialConnectTimeoutRef.current = setTimeout(() => {
+                if (isMounted) connect();
+              }, initialDelay);
+            }
+            return;
+          }
+          // Log other errors
+          console.warn("Session verification failed, will retry:", error);
           // Still attempt connection, but with delay
           if (isMounted) {
             initialConnectTimeoutRef.current = setTimeout(() => {

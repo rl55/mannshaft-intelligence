@@ -502,8 +502,9 @@ class GoogleSheetsIntegration:
             raise ValueError("Revenue spreadsheet_id not configured")
         
         ranges = revenue_config.get('ranges', [
-            "Revenue Metrics!A1:G100",
-            "Churn Data!A1:E100"
+            "Weekly Revenue!A1:N100",
+            "Customer Cohorts!A1:K100",
+            "Revenue by Segment!A1:M100"
         ])
         
         all_data_points = []
@@ -573,8 +574,9 @@ class GoogleSheetsIntegration:
             raise ValueError("Product spreadsheet_id not configured")
         
         ranges = product_config.get('ranges', [
-            "DAU/WAU!A1:F100",
-            "Feature Adoption!A1:H100"
+            "Engagement Metrics!A1:M100",
+            "Feature Adoption!A1:M100",
+            "User Journey Metrics!A1:M100"
         ])
         
         all_data_points = []
@@ -642,8 +644,9 @@ class GoogleSheetsIntegration:
             raise ValueError("Support spreadsheet_id not configured")
         
         ranges = support_config.get('ranges', [
-            "Ticket Volume!A1:E100",
-            "CSAT Scores!A1:D50"
+            "Ticket Volume!A1:N100",
+            "CSAT & Satisfaction!A1:M100",
+            "Support Categories!A1:M100"
         ])
         
         all_data_points = []

@@ -1,16 +1,55 @@
+"use client"
+
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { ArrowRight } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
-
-const data = [
-  { time: "2m ago", rule: "Low Confidence", severity: "Medium", action: "Escalated" },
-  { time: "15m ago", rule: "Data Stale", severity: "Low", action: "Warning" },
-  { time: "1h ago", rule: "Cost Limit", severity: "High", action: "Blocked" },
-]
+import { apiClient } from "@/lib/api"
+import { useQuery } from "@tanstack/react-query"
 
 export function RecentViolationsTable() {
+  const { data, isLoading } = useQuery({
+    queryKey: ["recent-guardrail-violations"],
+    queryFn: () => apiClient.getRecentGuardrailViolations(10),
+    refetchInterval: 10000, // Refetch every 10 seconds
+  })
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg">Recent Violations</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[200px] flex items-center justify-center">
+            <p className="text-muted-foreground">Loading...</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
+  const violations = data?.violations || []
+
+  if (violations.length === 0) {
+    return (
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg">Recent Violations</CardTitle>
+          <Button variant="ghost" size="sm" className="text-xs">
+            View All <ArrowRight className="ml-1 h-3 w-3" />
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[200px] flex items-center justify-center">
+            <p className="text-muted-foreground">No violations found</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -30,7 +69,7 @@ export function RecentViolationsTable() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {data.map((item, i) => (
+            {violations.map((item: any, i: number) => (
               <TableRow key={i}>
                 <TableCell className="text-muted-foreground">{item.time}</TableCell>
                 <TableCell className="font-medium">{item.rule}</TableCell>

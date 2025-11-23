@@ -17,7 +17,10 @@ export interface EscalationItem {
   primaryAgent: string
   summary: string
   agentOutputs: AgentOutput[]
-  status: "pending" | "approved" | "rejected"
+  status: "pending" | "approved" | "rejected" | "modified"
+  humanDecision?: string
+  humanFeedback?: string
+  resolvedAt?: string
   decision?: {
     action: "approve" | "reject" | "modify"
     feedback?: string

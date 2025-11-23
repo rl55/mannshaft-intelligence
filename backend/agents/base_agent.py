@@ -76,23 +76,10 @@ class BaseAgent(ABC):
         start_time = time.time()
         
         try:
-            # Check cache first
-            if use_cache and config.get('cache.enabled', True):
-                cached_response = self.cache_manager.get_cached_agent_response(
-                    self.agent_type, context
-                )
-                if cached_response:
-                    self.logger.info(
-                        f"Cache hit for {self.agent_type}",
-                        extra={'trace_id': cached_response.get('id'), 'cache_hit': True}
-                    )
-                    return {
-                        'response': cached_response['response'],
-                        'confidence_score': cached_response['confidence_score'],
-                        'cached': True,
-                        'execution_time_ms': cached_response['execution_time_ms'],
-                        'trace_id': None  # No new trace for cache hits
-                    }
+            # Note: Cache check is handled by individual agents after they fetch data
+            # and calculate data_hash. BaseAgent doesn't check cache here because
+            # the cache context includes data_hash which isn't available until after
+            # data is fetched.
             
             # Start trace
             trace_id = self.cache_manager.start_trace(
@@ -109,19 +96,20 @@ class BaseAgent(ABC):
             # Execute agent analysis
             result = await self.analyze(context, session_id)
             
+            # If agent returned cached response, return early (no trace needed)
+            if result.get('cached', False):
+                return {
+                    **result,
+                    'trace_id': None  # No trace for cache hits
+                }
+            
             # Calculate execution time
             execution_time_ms = int((time.time() - start_time) * 1000)
             
-            # Cache the response
-            if use_cache and config.get('cache.enabled', True):
-                self.cache_manager.cache_agent_response(
-                    agent_type=self.agent_type,
-                    context=context,
-                    response=result['response'],
-                    confidence_score=result.get('confidence_score', 0.5),
-                    execution_time_ms=execution_time_ms,
-                    ttl_hours=config.get('cache.agent_response_ttl_hours', 24)
-                )
+            # Note: Caching is handled by individual agents after they fetch data
+            # and calculate data_hash. BaseAgent doesn't cache here because the
+            # cache context needs to include data_hash which isn't available until
+            # after data is fetched by the agent.
             
             # End trace with success
             self.cache_manager.end_trace(

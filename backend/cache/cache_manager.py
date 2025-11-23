@@ -683,4 +683,14 @@ class CacheManager:
             'prompt_cache_deleted': prompt_deleted,
             'agent_cache_deleted': agent_deleted
         }
+    
+    def clear_cache(self):
+        """Clear all cache tables."""
+        conn = self.connect()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM prompt_cache")
+        cursor.execute("DELETE FROM agent_responses")
+        conn.commit()
+        if hasattr(self, 'logger') and self.logger:
+            self.logger.info("All cache tables cleared.")
 

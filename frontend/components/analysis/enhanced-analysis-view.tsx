@@ -100,38 +100,68 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
     status: "initializing",
   })
 
-  // Update session from WebSocket events
+  // Update session from WebSocket events and progress
+  useEffect(() => {
+    // Update progress from hook's progress value (most up-to-date)
+    setSession((prev) => ({
+      ...prev,
+      progress: progress,
+      status: progress >= 100 ? "completed" : prev.status === "initializing" ? "initializing" : "processing",
+    }))
+  }, [progress])
+
+  // Update session from WebSocket events for agent-specific updates
   useEffect(() => {
     if (events.length > 0) {
-      const latestEvent = events[events.length - 1]
+      // Process all events, not just the latest one
+      // This ensures we catch all agent_completed events even if they arrive together
+      const processedAgents = new Set<string>()
       
-      // Update progress
-      setSession((prev) => ({
-        ...prev,
-        progress: latestEvent.progress || prev.progress,
-        status: latestEvent.progress >= 100 ? "completed" : "processing",
-      }))
+      events.forEach((event) => {
+        // Update status based on event type (use latest event for status)
+        if (event === events[events.length - 1]) {
+          if (event.type === "completed" || event.progress >= 100) {
+            setSession((prev) => ({
+              ...prev,
+              status: "completed",
+            }))
+          } else if (event.type === "error") {
+            setSession((prev) => ({
+              ...prev,
+              status: "failed",
+            }))
+          } else if (event.type === "agent_started" || event.type === "progress_update") {
+            setSession((prev) => ({
+              ...prev,
+              status: prev.status === "initializing" ? "processing" : prev.status,
+            }))
+          }
+        }
 
-      // Handle agent-specific events
-      if (latestEvent.agent) {
-        const agentId = latestEvent.agent.toLowerCase()
-        const agent = agents.find((a) => a.id === agentId)
+        // Handle agent-specific events - process ALL events, not just latest
+        if (event.agent) {
+          const agentId = event.agent.toLowerCase()
+          const eventKey = `${event.type}-${agentId}`
+          
+          // Skip if we've already processed this exact event
+          if (processedAgents.has(eventKey)) return
+          processedAgents.add(eventKey)
 
-        if (agent) {
-          if (latestEvent.type === "agent_started") {
+          // Use functional updates to avoid dependency on agents array
+          if (event.type === "agent_started") {
             setAgents((prev) =>
               prev.map((a) =>
                 a.id === agentId ? { ...a, status: "running" } : a
               )
             )
-          } else if (latestEvent.type === "agent_completed") {
+          } else if (event.type === "agent_completed") {
             setAgents((prev) =>
               prev.map((a) =>
                 a.id === agentId
                   ? {
                       ...a,
                       status: "completed",
-                      confidence: latestEvent.data?.confidence || a.confidence,
+                      confidence: event.data?.confidence || a.confidence,
                     }
                   : a
               )
@@ -139,32 +169,68 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
           }
 
           // Add log entry
-          if (latestEvent.message) {
-            setAgents((prev) =>
-              prev.map((a) =>
+          if (event.message) {
+            setAgents((prev) => {
+              const agent = prev.find((a) => a.id === agentId)
+              if (!agent) return prev
+              
+              // Check if this log entry already exists to prevent duplicates
+              const logEntry = `> ${event.message}`
+              if (agent.logs.includes(logEntry)) return prev
+              
+              return prev.map((a) =>
                 a.id === agentId
-                  ? { ...a, logs: [...a.logs, `> ${latestEvent.message}`] }
+                  ? { ...a, logs: [...a.logs, logEntry] }
                   : a
               )
-            )
+            })
           }
         }
-      }
+      })
     }
-  }, [events, agents])
+  }, [events]) // Removed 'agents' from dependencies to prevent infinite loop
 
-  // Poll for status updates as fallback
+  // Poll for status updates as fallback (only when WebSocket is not connected)
   useEffect(() => {
-    if (!isConnected && !isReconnecting) {
+    if (!isConnected && !isReconnecting && sessionId) {
+      let pollCount = 0
+      const maxPollAttempts = 3 // Stop polling after 3 consecutive 404s
+      let consecutive404s = 0
+      
       const interval = setInterval(async () => {
         try {
           const status = await getAnalysisStatus(sessionId)
+          consecutive404s = 0 // Reset counter on success
+          // Update session status, but progress comes from WebSocket hook
           setSession((prev) => ({
             ...prev,
-            progress: status.progress,
             status: status.status as SessionStatus["status"],
+            // Only update progress if WebSocket hasn't provided a more recent value
+            // (WebSocket progress takes precedence)
           }))
-        } catch (error) {
+          
+          // Stop polling if analysis is completed or failed
+          if (status.status === 'completed' || status.status === 'failed') {
+            clearInterval(interval)
+          }
+        } catch (error: any) {
+          // Handle 404s gracefully - session might not exist yet or was cleared
+          if (error?.statusCode === 404) {
+            consecutive404s++
+            pollCount++
+            
+            // Only log warning after multiple attempts
+            if (consecutive404s >= maxPollAttempts) {
+              console.warn(`Session ${sessionId} not found after ${pollCount} attempts. Stopping polling.`)
+              clearInterval(interval)
+              return
+            }
+            
+            // Silently retry for first few 404s (session might be initializing)
+            return
+          }
+          
+          // Log other errors
           console.error("Failed to fetch status:", error)
         }
       }, 5000) // Poll every 5 seconds
@@ -195,15 +261,18 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
             </CardTitle>
             <CardDescription>
               Multi-agent intelligence grid processing data
-              {isReconnecting && (
+              {session.status === "completed" ? (
+                <span className="ml-2 text-green-600 flex items-center gap-1">
+                  ✓ Completed
+                </span>
+              ) : isReconnecting ? (
                 <span className="ml-2 text-yellow-600">Reconnecting...</span>
-              )}
-              {!isConnected && !isReconnecting && (
+              ) : !isConnected && !isReconnecting ? (
                 <span className="ml-2 text-red-600 flex items-center gap-1">
                   <AlertCircle className="h-3 w-3" />
                   Disconnected
                 </span>
-              )}
+              ) : null}
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">

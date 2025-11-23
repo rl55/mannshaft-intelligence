@@ -93,8 +93,11 @@ export const useAnalysisStore = create<AnalysisState>()(
         fetchSessions: async (forceRefresh = false) => {
           set({ isLoadingSessions: true });
           try {
-            const sessions = await apiClient.getSessions(forceRefresh);
+            const response = await apiClient.getSessions(forceRefresh);
+            // Response should have sessions array
+            const sessions = response?.sessions || response || [];
             set({ sessions, isLoadingSessions: false });
+            return response; // Return the response for use in components
           } catch (error) {
             set({ isLoadingSessions: false });
             throw error;

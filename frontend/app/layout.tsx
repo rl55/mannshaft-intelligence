@@ -5,6 +5,7 @@ import { Analytics } from "@vercel/analytics/react"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { ThemeProvider } from "@/components/theme-provider"
+import { QueryProvider } from "@/components/providers/query-provider"
 import "./globals.css"
 
 const inter = Inter({
@@ -44,13 +45,15 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} font-sans antialiased`}>
-        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
-          <SidebarProvider defaultOpen={true}>
-            <AppSidebar />
-            <SidebarInset>{children}</SidebarInset>
-          </SidebarProvider>
-          <Analytics />
-        </ThemeProvider>
+        <QueryProvider>
+          <ThemeProvider attribute="class" defaultTheme="dark" enableSystem disableTransitionOnChange>
+            <SidebarProvider defaultOpen={true}>
+              <AppSidebar />
+              <SidebarInset>{children}</SidebarInset>
+            </SidebarProvider>
+            <Analytics />
+          </ThemeProvider>
+        </QueryProvider>
       </body>
     </html>
   )

@@ -8,9 +8,13 @@ interface AgentOutputsProps {
 }
 
 export function AgentOutputs({ outputs }: AgentOutputsProps) {
+  if (!outputs || outputs.length === 0) {
+    return null
+  }
+  
   return (
-    <div className="mt-6">
-      <h3 className="text-sm font-semibold uppercase text-muted-foreground mb-3">Agent Outputs & Signals</h3>
+    <div className="mt-3">
+      <h3 className="text-xs font-semibold uppercase text-muted-foreground mb-2">Agent Outputs & Signals</h3>
       <Accordion type="single" collapsible className="w-full">
         {outputs.map((output) => (
           <AccordionItem key={output.id} value={output.id}>
