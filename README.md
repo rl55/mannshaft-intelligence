@@ -454,33 +454,16 @@ revenue_agent.receive(message)
 ```
 
 ### Context Engineering & Memory
-
+SQLite-based Memory Bank for session history, preferences, and context
 **Session Memory (Short-Term):**
 - Each analysis session maintains state across agent calls
 - Context window: 32K tokens with intelligent compaction
 - Session TTL: 24 hours
 
 **Memory Bank (Long-Term):**
-- Stored in Google Sheets via MCP
+- Stored in SQL Lite
 - Tracks: User preferences, historical insights, feedback
 - Used for: Personalization, trend comparison, recommendation refinement
-````python
-class MemoryBank:
-    def __init__(self, sheets_client):
-        self.session_memory = {}  # Short-term
-        self.persistent = sheets_client  # Long-term via MCP
-    
-    def save_insight(self, session_id: str, insight: dict):
-        self.session_memory[session_id].append(insight)
-        if insight["importance"] > 0.8:
-            self.persistent.append_row(MEMORY_SHEET_ID, insight)
-    
-    def get_historical_context(self, metric: str, weeks: int = 4):
-        return self.persistent.read_range(
-            MEMORY_SHEET_ID, 
-            f"metric={metric}&weeks={weeks}"
-        )
-````
 
 ---
 
