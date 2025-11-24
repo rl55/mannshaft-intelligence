@@ -5,7 +5,7 @@ Coordinates multiple analytical agents, synthesizes results, applies governance,
 and manages the complete analysis lifecycle from session creation to final report delivery.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable, Awaitable
 from dataclasses import dataclass, field
 from enum import Enum
 import asyncio
@@ -95,7 +95,8 @@ class OrchestratorAgent:
         cache_manager: Optional[CacheManager] = None,
         guardrails: Optional[Guardrails] = None,
         evaluator: Optional[Evaluator] = None,
-        hitl_manager: Optional[HITLManager] = None
+        hitl_manager: Optional[HITLManager] = None,
+        event_emitter: Optional[Callable[[Dict[str, Any]], Awaitable[None]]] = None
     ):
         """
         Initialize the orchestrator agent.
@@ -105,7 +106,9 @@ class OrchestratorAgent:
             guardrails: Guardrails instance (creates new if None)
             evaluator: Evaluator instance (creates new if None)
             hitl_manager: HITL manager instance (creates new if None)
+            event_emitter: Optional async function to emit WebSocket events (event_dict) -> None
         """
+        self.event_emitter = event_emitter
         self.cache_manager = cache_manager or CacheManager(
             db_path=config.get('database.path', 'data/agent_cache.db'),
             schema_path=config.get('database.schema_path', 'data/schema.sql')
@@ -235,17 +238,71 @@ class OrchestratorAgent:
                     )
                     
                     # Step 4: Apply guardrails
+                    # Emit governance started event
+                    if self.event_emitter:
+                        await self.event_emitter({
+                            'type': 'agent_started',
+                            'session_id': session_id,
+                            'agent': 'governance',
+                            'progress': 75,
+                            'message': 'Applying safety guardrails...',
+                            'timestamp': datetime.now().isoformat()
+                        })
+                    
                     guardrail_violations = self._apply_guardrails(
                         response=synthesized_result,
                         session_id=session_id
                     )
                     
+                    # Emit governance completed event
+                    if self.event_emitter:
+                        governance_confidence = 1.0 if len(guardrail_violations) == 0 else max(0.5, 1.0 - (len(guardrail_violations) * 0.1))
+                        await self.event_emitter({
+                            'type': 'agent_completed',
+                            'session_id': session_id,
+                            'agent': 'governance',
+                            'progress': 85,
+                            'message': 'Governance agent completed',
+                            'data': {
+                                'confidence': governance_confidence
+                            },
+                            'timestamp': datetime.now().isoformat()
+                        })
+                    
                     # Step 5: Evaluate quality (needed for escalation decision)
+                    # Emit evaluation started event
+                    if self.event_emitter:
+                        await self.event_emitter({
+                            'type': 'agent_started',
+                            'session_id': session_id,
+                            'agent': 'evaluation',
+                            'progress': 90,
+                            'message': 'Evaluating report quality...',
+                            'timestamp': datetime.now().isoformat()
+                        })
+                    
                     evaluation_result = await self._evaluate_quality(
                         response=synthesized_result,
                         session_id=session_id,
                         analytical_results=analytical_results
                     )
+                    
+                    # Emit evaluation completed event
+                    if self.event_emitter:
+                        # Calculate evaluation confidence from quality score
+                        overall_score = evaluation_result.get('evaluation_details', {}).get('overall_score', 0.9)
+                        evaluation_confidence = overall_score if overall_score else 0.9
+                        await self.event_emitter({
+                            'type': 'agent_completed',
+                            'session_id': session_id,
+                            'agent': 'evaluation',
+                            'progress': 95,
+                            'message': 'Evaluation agent completed',
+                            'data': {
+                                'confidence': evaluation_confidence
+                            },
+                            'timestamp': datetime.now().isoformat()
+                        })
                     
                     # Step 6: Handle HITL escalations if needed
                     hitl_escalations = await self._handle_hitl_escalations(
@@ -299,6 +356,12 @@ class OrchestratorAgent:
                                     'response': v.get('response', '{}')  # Store full response for insights extraction
                                 }
                                 for k, v in analytical_results.items()
+                            },
+                            # Store synthesizer result for WebSocket events
+                            'synthesizer_result': {
+                                'confidence_score': synthesized_result.get('confidence_score', 0.9),
+                                'cached': synthesized_result.get('cached', False),
+                                'execution_time_ms': synthesized_result.get('execution_time_ms', 0)
                             }
                         }
                     )
@@ -546,6 +609,17 @@ class OrchestratorAgent:
             'timestamp': datetime.now().isoformat()
         }
         
+        # Emit synthesizer started event
+        if self.event_emitter:
+            await self.event_emitter({
+                'type': 'agent_started',
+                'session_id': session_id,
+                'agent': 'synthesizer',
+                'progress': 60,
+                'message': 'Synthesizing cross-functional insights...',
+                'timestamp': datetime.now().isoformat()
+            })
+        
         # Execute synthesizer agent
         try:
             synthesized = await self.synthesizer_agent.execute(
@@ -554,6 +628,22 @@ class OrchestratorAgent:
             )
             
             self.logger.info("Synthesis completed successfully")
+            
+            # Emit synthesizer completed event
+            if self.event_emitter:
+                synthesizer_confidence = synthesized.get('confidence_score', 0.9)
+                await self.event_emitter({
+                    'type': 'agent_completed',
+                    'session_id': session_id,
+                    'agent': 'synthesizer',
+                    'progress': 70,
+                    'message': 'Synthesizer agent completed',
+                    'data': {
+                        'confidence': synthesizer_confidence
+                    },
+                    'timestamp': datetime.now().isoformat()
+                })
+            
             return synthesized
             
         except Exception as e:

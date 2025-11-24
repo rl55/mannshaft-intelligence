@@ -103,8 +103,12 @@ async def run_analysis(
             'timestamp': datetime.utcnow().isoformat()
         })
         
-        # Get orchestrator
-        orchestrator = OrchestratorAgent(cache_manager=cache_manager)
+        # Create event emitter function for orchestrator
+        async def emit_event(event_dict: Dict[str, Any]):
+            await emit_websocket_event(session_id, event_dict)
+        
+        # Get orchestrator with event emitter
+        orchestrator = OrchestratorAgent(cache_manager=cache_manager, event_emitter=emit_event)
         
         # Map analysis type to string (orchestrator expects string, not enum)
         analysis_type_str = analysis_type  # Use the string directly
@@ -243,20 +247,8 @@ async def run_analysis(
                 'timestamp': datetime.utcnow().isoformat()
             })
         
-        # Also emit completion event for governance agent (guardrails always run)
-        # Governance agent confidence is based on guardrail violations (1.0 if no violations)
-        governance_confidence = 1.0 if result.guardrail_violations == 0 else max(0.5, 1.0 - (result.guardrail_violations * 0.1))
-        await emit_websocket_event(session_id, {
-            'type': 'agent_completed',
-            'session_id': session_id,
-            'agent': 'governance',
-            'progress': 100,
-            'message': 'Governance agent completed',
-            'data': {
-                'confidence': governance_confidence  # Send as decimal (0-1)
-            },
-            'timestamp': datetime.utcnow().isoformat()
-        })
+        # Note: Synthesizer, Governance, and Evaluation events are now emitted
+        # directly by the orchestrator during execution via the event_emitter callback
         
         # Save analysis result to database
         db_manager.save_analysis_result(
@@ -622,21 +614,45 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     })
                     logger.debug(f"Sent agent events for {agent_type} with confidence {confidence_score:.2f} ({int(confidence_score * 100)}%) and {len(key_insights)} insights")
                 
-                # Also send completion event for governance agent
+                # Send events for synthesizer agent (always runs after analytical agents)
+                synthesizer_result = metadata.get('synthesizer_result', {})
+                synthesizer_confidence = synthesizer_result.get('confidence_score', 0.9) if synthesizer_result else 0.9
+                await websocket.send_json({
+                    'type': 'agent_started',
+                    'session_id': session_id,
+                    'agent': 'synthesizer',
+                    'progress': 60,
+                    'message': 'Synthesizing cross-functional insights...',
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+                await websocket.send_json({
+                    'type': 'agent_completed',
+                    'session_id': session_id,
+                    'agent': 'synthesizer',
+                    'progress': 70,
+                    'message': 'Synthesizer agent completed',
+                    'data': {
+                        'confidence': synthesizer_confidence
+                    },
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+                logger.debug(f"Sent synthesizer agent events with confidence {synthesizer_confidence:.2f} ({int(synthesizer_confidence * 100)}%)")
+                
+                # Send events for governance agent (always runs after synthesizer)
                 governance_confidence = 1.0 if guardrail_violations == 0 else max(0.5, 1.0 - (guardrail_violations * 0.1))
                 await websocket.send_json({
                     'type': 'agent_started',
                     'session_id': session_id,
                     'agent': 'governance',
-                    'progress': 90,
-                    'message': 'Verifying compliance with safety guardrails...',
+                    'progress': 75,
+                    'message': 'Applying safety guardrails...',
                     'timestamp': datetime.utcnow().isoformat()
                 })
                 await websocket.send_json({
                     'type': 'progress_update',
                     'session_id': session_id,
                     'agent': 'governance',
-                    'progress': 95,
+                    'progress': 80,
                     'message': 'PII Check: Passed' if guardrail_violations == 0 else f'Found {guardrail_violations} guardrail violation(s)',
                     'timestamp': datetime.utcnow().isoformat()
                 })
@@ -644,7 +660,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     'type': 'agent_completed',
                     'session_id': session_id,
                     'agent': 'governance',
-                    'progress': 100,
+                    'progress': 85,
                     'message': 'Final report approved for distribution' if guardrail_violations == 0 else 'Report requires review',
                     'data': {
                         'confidence': governance_confidence  # Send as decimal (0-1)
@@ -652,6 +668,31 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                     'timestamp': datetime.utcnow().isoformat()
                 })
                 logger.debug(f"Sent governance agent events with confidence {governance_confidence:.2f} ({int(governance_confidence * 100)}%)")
+                
+                # Send events for evaluation agent (always runs after governance)
+                evaluation_result = metadata.get('evaluation', {})
+                evaluation_details = evaluation_result.get('evaluation_details', {}) if isinstance(evaluation_result, dict) else {}
+                evaluation_confidence = evaluation_details.get('overall_score', result.get('quality_score', 0.9)) if evaluation_details else result.get('quality_score', 0.9)
+                await websocket.send_json({
+                    'type': 'agent_started',
+                    'session_id': session_id,
+                    'agent': 'evaluation',
+                    'progress': 90,
+                    'message': 'Evaluating report quality...',
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+                await websocket.send_json({
+                    'type': 'agent_completed',
+                    'session_id': session_id,
+                    'agent': 'evaluation',
+                    'progress': 95,
+                    'message': 'Evaluation agent completed',
+                    'data': {
+                        'confidence': evaluation_confidence
+                    },
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+                logger.debug(f"Sent evaluation agent events with confidence {evaluation_confidence:.2f} ({int(evaluation_confidence * 100)}%)")
         else:
             logger.debug(f"No status found for session {session_id} when WebSocket connected")
         

@@ -7,7 +7,7 @@ import { ProgressDisplay } from "@/components/analysis/progress-display"
 import type { AgentData, SessionStatus } from "@/components/analysis/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { BarChart3, RefreshCw, DollarSign, Users, HeadphonesIcon, X, Shield, AlertCircle } from "lucide-react"
+import { BarChart3, RefreshCw, DollarSign, Users, HeadphonesIcon, X, Shield, AlertCircle, Network, CheckCircle } from "lucide-react"
 import { useAnalysisProgress } from "@/hooks/use-analysis-progress"
 import { useAnalysisStore } from "@/store/analysis-store"
 import { useToast } from "@/hooks/use-toast"
@@ -38,9 +38,25 @@ const INITIAL_AGENTS: AgentData[] = [
     confidence: 0,
   },
   {
+    id: "synthesizer",
+    name: "Synthesizer Agent",
+    role: "Cross-Functional Synthesis",
+    status: "idle",
+    logs: [],
+    confidence: 0,
+  },
+  {
     id: "governance",
     name: "Governance Agent",
     role: "Safety & Compliance",
+    status: "idle",
+    logs: [],
+    confidence: 0,
+  },
+  {
+    id: "evaluation",
+    name: "Evaluation Agent",
+    role: "Quality Assurance",
     status: "idle",
     logs: [],
     confidence: 0,
@@ -51,7 +67,9 @@ const AGENT_ICONS = {
   revenue: <DollarSign className="size-5 text-primary" />,
   product: <Users className="size-5 text-primary" />,
   support: <HeadphonesIcon className="size-5 text-primary" />,
+  synthesizer: <Network className="size-5 text-primary" />,
   governance: <Shield className="size-5 text-primary" />,
+  evaluation: <CheckCircle className="size-5 text-primary" />,
 }
 
 interface EnhancedAnalysisViewProps {
@@ -102,13 +120,25 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
 
   // Update session from WebSocket events and progress
   useEffect(() => {
+    // Check if all agents are completed
+    const allAgentsCompleted = agents.every(agent => agent.status === "completed");
+    
     // Update progress from hook's progress value (most up-to-date)
+    // Ensure progress is 100% when all agents are completed or status is completed
+    let finalProgress = progress;
+    if (allAgentsCompleted && progress < 100) {
+      // If all agents are completed but progress isn't 100, set it to 100
+      finalProgress = 100;
+    } else if (progress >= 100) {
+      finalProgress = 100;
+    }
+    
     setSession((prev) => ({
       ...prev,
-      progress: progress,
-      status: progress >= 100 ? "completed" : prev.status === "initializing" ? "initializing" : "processing",
+      progress: finalProgress,
+      status: finalProgress >= 100 || allAgentsCompleted ? "completed" : prev.status === "initializing" ? "initializing" : "processing",
     }))
-  }, [progress])
+  }, [progress, agents])
 
   // Update session from WebSocket events for agent-specific updates
   useEffect(() => {
@@ -291,7 +321,7 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
       <CardContent className="space-y-6">
         <ProgressDisplay session={session} />
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {agents.map((agent) => (
             <AgentCard
               key={agent.id}

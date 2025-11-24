@@ -126,17 +126,19 @@ export function useAnalysisProgress(
           });
 
           setEvents((prev) => [...prev, eventWithTimestamp]);
-          setProgress(data.progress || 0);
-
-          // Handle completion
+          
+          // Handle completion - ensure progress is set to 100
           if (data.type === "completed" || data.progress >= 100) {
             console.log("Analysis completed via WebSocket");
+            setProgress(100); // Explicitly set to 100% on completion
             // Call completion callback but keep connection open
             // The UI will show "Completed" status instead of "Disconnected"
             onComplete?.();
             // Don't close the connection immediately - let it stay open
             // The connection will close naturally when component unmounts
             // This way the UI can show "Completed" instead of "Disconnected"
+          } else {
+            setProgress(data.progress || 0);
           }
         } catch (error) {
           console.error("Failed to parse WebSocket message:", error, event.data);
