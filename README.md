@@ -1097,10 +1097,10 @@ copies of the Software...
 
 ### **Questions?**
 
-- **GitHub Issues**: [Report bugs or request features](https://github.com/yourusername/saas-bi-agent/issues)
-- **Email**: your.email@example.com
-- **Discord**: [Join our community](https://discord.gg/your-server)
-- **Twitter**: [@yourusername](https://twitter.com/yourusername)
+- **GitHub Issues**: [Report bugs or request features](https://github.com/rl55/mannshaft-intelligence/issues)
+- **Email**: rakesh@easidoo.com
+- **Discord**: [Join our community](https://discord.gg/6bgy8ENK)
+- **Twitter**: [@yourusername](https://twitter.com/r_luthra)
 
 ### **Acknowledgments**
 
