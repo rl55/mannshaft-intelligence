@@ -413,8 +413,8 @@ flowchart TB
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/saas-bi-agent.git
-cd saas-bi-agent
+git clone https://github.com/rl55/mannshaft-intelligence.git
+cd mannshaft-intelligence
 
 # Run automated setup
 chmod +x setup.sh
@@ -474,8 +474,8 @@ Follow the [Quick Start](#-quick-start) section above.
 #### **Step 1: Clone Repository**
 
 ```bash
-git clone https://github.com/yourusername/saas-bi-agent.git
-cd saas-bi-agent
+git clone https://github.com/rl55/mannshaft-intelligence.git
+cd mannshaft-intelligence
 ```
 
 #### **Step 2: Backend Setup**
@@ -1060,8 +1060,8 @@ We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) f
 
 ```bash
 # Fork and clone
-git clone https://github.com/yourusername/saas-bi-agent.git
-cd saas-bi-agent
+git clone https://github.com/rl55/mannshaft-intelligence.git
+cd mannshaft-intelligence
 
 # Create feature branch
 git checkout -b feature/your-feature-name
@@ -1100,7 +1100,7 @@ copies of the Software...
 - **GitHub Issues**: [Report bugs or request features](https://github.com/rl55/mannshaft-intelligence/issues)
 - **Email**: rakesh@easidoo.com
 - **Discord**: [Join our community](https://discord.gg/6bgy8ENK)
-- **Twitter**: [@yourusername](https://twitter.com/r_luthra)
+- **Twitter**: [@r_luthra](https://twitter.com/r_luthra)
 
 ### **Acknowledgments**
 
