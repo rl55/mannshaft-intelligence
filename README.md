@@ -9,7 +9,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Next.js 14](https://img.shields.io/badge/Next.js-14-black)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688.svg)](https://fastapi.tiangolo.com)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: GNU GPLv3](https://img.shields.io/badge/license-%20%20GNU%20GPLv3%20-green?style=plastic)](https://github.com/rl55/mannshaft-intelligence/blob/main/LICENSE)
 
 [Demo](#demo) • [Architecture](#architecture) • [Quick Start](#quick-start) • [Documentation](#documentation)
 
