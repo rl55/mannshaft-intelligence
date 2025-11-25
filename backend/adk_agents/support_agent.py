@@ -22,11 +22,10 @@ from utils.logger import logger
 async def fetch_support_data(
     week_number: int,
     spreadsheet_id: Optional[str] = None,
-    support_ranges: Optional[List[str]] = None,
-    support_sheet: Optional[str] = None
+    support_ranges: Optional[List[str]] = None
 ) -> Dict[str, Any]:
     """
-    Fetch support metrics data from Google Sheets.
+    Fetch support metrics data from Google Sheets using ADK MCP tools.
     
     This tool retrieves support data from multiple sheets:
     - Ticket Volume sheet: Ticket counts, categories, volumes
@@ -35,28 +34,26 @@ async def fetch_support_data(
     
     Args:
         week_number: Week number for analysis (1-52)
-        spreadsheet_id: Google Sheets spreadsheet ID
-        support_ranges: List of sheet ranges to read (e.g., ["Ticket Volume!A1:N100", "CSAT & Satisfaction!A1:M100"])
-        support_sheet: Name of the primary support sheet (default: "Ticket Volume")
+        spreadsheet_id: Optional Google Sheets spreadsheet ID (uses config default if not provided)
+        support_ranges: Optional list of sheet ranges to read (e.g., ["Ticket Volume!A1:N100", "CSAT & Satisfaction!A1:M100"])
         
     Returns:
         Dictionary containing:
-        - records: List of support data points with fields: week, ticket_count, avg_response_time_hours, avg_resolution_time_hours, csat_score, nps_score, category_breakdown, escalation_count, first_contact_resolution_rate
-        - csat_data: CSAT and satisfaction data (if available)
-        - category_data: Support category breakdown data (if available)
-        - total_records: Number of records fetched
-        - data_freshness: Hours since data last updated
+        - week_number: Week number
+        - data_points: List of support data points with fields: week, ticket_count, avg_response_time_hours, avg_resolution_time_hours, csat_score, nps_score, category_breakdown, escalation_count, first_contact_resolution_rate
+        - metadata: Metadata about the data
+        - freshness: Data freshness information
     """
-    from integrations.google_sheets import GoogleSheetsClient
+    from adk_tools.google_sheets_tools import fetch_support_data_from_sheets
     
-    client = GoogleSheetsClient()
-    # TODO: Migrate to ADK MCP tools
+    # Use ADK MCP tool
+    result = await fetch_support_data_from_sheets(
+        week_number=week_number,
+        spreadsheet_id=spreadsheet_id,
+        support_ranges=support_ranges
+    )
     
-    return {
-        "status": "fetched",
-        "week_number": week_number,
-        "note": "Using existing Google Sheets client - will migrate to MCP tools"
-    }
+    return result
 
 
 async def perform_support_statistical_analysis(

@@ -22,11 +22,10 @@ from utils.logger import logger
 async def fetch_product_data(
     week_number: int,
     spreadsheet_id: Optional[str] = None,
-    product_ranges: Optional[List[str]] = None,
-    product_sheet: Optional[str] = None
+    product_ranges: Optional[List[str]] = None
 ) -> Dict[str, Any]:
     """
-    Fetch product metrics data from Google Sheets.
+    Fetch product metrics data from Google Sheets using ADK MCP tools.
     
     This tool retrieves product data from multiple sheets:
     - Engagement Metrics sheet: DAU/WAU/MAU, engagement scores
@@ -35,28 +34,26 @@ async def fetch_product_data(
     
     Args:
         week_number: Week number for analysis (1-52)
-        spreadsheet_id: Google Sheets spreadsheet ID
-        product_ranges: List of sheet ranges to read (e.g., ["Engagement Metrics!A1:M100", "Feature Adoption!A1:M100"])
-        product_sheet: Name of the primary product sheet (default: "Engagement Metrics")
+        spreadsheet_id: Optional Google Sheets spreadsheet ID (uses config default if not provided)
+        product_ranges: Optional list of sheet ranges to read (e.g., ["Engagement Metrics!A1:M100", "Feature Adoption!A1:M100"])
         
     Returns:
         Dictionary containing:
-        - records: List of product data points with fields: week, dau, wau, mau, feature_adoptions, activation_time_days, pqls, engagement_score
-        - feature_adoption_data: Feature adoption data by feature (if available)
-        - user_journey_data: User journey and activation data (if available)
-        - total_records: Number of records fetched
-        - data_freshness: Hours since data last updated
+        - week_number: Week number
+        - data_points: List of product data points with fields: week, dau, wau, mau, feature_adoptions, activation_time_days, pqls, engagement_score
+        - metadata: Metadata about the data
+        - freshness: Data freshness information
     """
-    from integrations.google_sheets import GoogleSheetsClient
+    from adk_tools.google_sheets_tools import fetch_product_data_from_sheets
     
-    client = GoogleSheetsClient()
-    # TODO: Migrate to ADK MCP tools
+    # Use ADK MCP tool
+    result = await fetch_product_data_from_sheets(
+        week_number=week_number,
+        spreadsheet_id=spreadsheet_id,
+        product_ranges=product_ranges
+    )
     
-    return {
-        "status": "fetched",
-        "week_number": week_number,
-        "note": "Using existing Google Sheets client - will migrate to MCP tools"
-    }
+    return result
 
 
 async def perform_product_statistical_analysis(

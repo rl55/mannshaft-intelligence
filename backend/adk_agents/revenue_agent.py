@@ -23,12 +23,10 @@ from utils.logger import logger
 async def fetch_revenue_data(
     week_number: int,
     spreadsheet_id: Optional[str] = None,
-    revenue_ranges: Optional[List[str]] = None,
-    revenue_sheet: Optional[str] = None,
-    churn_sheet: Optional[str] = None
+    revenue_ranges: Optional[List[str]] = None
 ) -> Dict[str, Any]:
     """
-    Fetch revenue data from Google Sheets.
+    Fetch revenue data from Google Sheets using ADK MCP tools.
     
     This tool retrieves revenue data from multiple sheets:
     - Primary revenue sheet: Weekly revenue metrics (MRR, customers, churn)
@@ -37,31 +35,26 @@ async def fetch_revenue_data(
     
     Args:
         week_number: Week number for analysis (1-52)
-        spreadsheet_id: Google Sheets spreadsheet ID
-        revenue_ranges: List of sheet ranges to read (e.g., ["Weekly Revenue!A1:N100", "Customer Cohorts!A1:K100"])
-        revenue_sheet: Name of the primary revenue sheet (default: "Weekly Revenue")
-        churn_sheet: Name of the churn sheet (optional, usually same as revenue sheet)
+        spreadsheet_id: Optional Google Sheets spreadsheet ID (uses config default if not provided)
+        revenue_ranges: Optional list of sheet ranges to read (e.g., ["Weekly Revenue!A1:N100", "Customer Cohorts!A1:K100"])
         
     Returns:
         Dictionary containing:
-        - records: List of revenue data points with fields: week, mrr, new_customers, churned, arpu, churn_rate, customer_count
-        - cohort_data: Customer cohort retention data (if available)
-        - segment_data: Revenue by segment data (if available)
-        - total_records: Number of records fetched
-        - data_freshness: Hours since data last updated
+        - week_number: Week number
+        - data_points: List of revenue data points with fields: week, mrr, new_customers, churned, arpu, churn_rate, customer_count
+        - metadata: Metadata about the data (spreadsheet_id, sheet_names, etc.)
+        - freshness: Data freshness information (hours since update, status)
     """
-    # This will be implemented using ADK MCP tools for Google Sheets
-    # For now, using existing Google Sheets client until MCP tools are set up
-    from integrations.google_sheets import GoogleSheetsClient
+    from adk_tools.google_sheets_tools import fetch_revenue_data_from_sheets
     
-    client = GoogleSheetsClient()
-    # TODO: Migrate to ADK MCP tools
+    # Use ADK MCP tool
+    result = await fetch_revenue_data_from_sheets(
+        week_number=week_number,
+        spreadsheet_id=spreadsheet_id,
+        revenue_ranges=revenue_ranges
+    )
     
-    return {
-        "status": "fetched",
-        "week_number": week_number,
-        "note": "Using existing Google Sheets client - will migrate to MCP tools"
-    }
+    return result
 
 
 async def perform_statistical_analysis(
