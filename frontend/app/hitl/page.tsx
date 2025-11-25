@@ -53,6 +53,46 @@ export default function HitlPage() {
               console.debug(`Could not fetch session details for ${esc.session_id}:`, e)
             }
 
+            // Fetch full escalation details including context
+            let escalationDetails = null
+            let agentOutputs: EscalationItem['agentOutputs'] = []
+            let guardrailViolations: any[] = []
+            let recommendedActions: any[] = []
+            let summary = esc.escalation_reason || "Escalation requires human review"
+            let riskRationale = ""
+            
+            try {
+              escalationDetails = await apiClient.getEscalationDetails(esc.request_id, true)
+              if (escalationDetails) {
+                summary = escalationDetails.summary || summary
+                riskRationale = escalationDetails.risk_rationale || ""
+                
+                // Transform agent_outputs to frontend format
+                if (escalationDetails.agent_outputs && typeof escalationDetails.agent_outputs === 'object') {
+                  agentOutputs = Object.entries(escalationDetails.agent_outputs).map(([agentName, output]: [string, any]) => ({
+                    id: agentName,
+                    name: agentName.charAt(0).toUpperCase() + agentName.slice(1) + " Agent",
+                    content: typeof output === 'string' ? output : JSON.stringify(output, null, 2),
+                    confidence: output?.confidence_score || output?.confidence || 0.85,
+                    flagged: false,
+                    warnings: output?.risk_flags || output?.warnings || []
+                  }))
+                }
+                
+                // Extract guardrail violations
+                if (Array.isArray(escalationDetails.guardrail_violations)) {
+                  guardrailViolations = escalationDetails.guardrail_violations
+                }
+                
+                // Extract recommended actions
+                if (Array.isArray(escalationDetails.recommended_actions)) {
+                  recommendedActions = escalationDetails.recommended_actions
+                }
+              }
+            } catch (e) {
+              console.debug(`Could not fetch escalation details for ${esc.request_id}:`, e)
+            }
+
             // Format timestamp
             const createdAt = new Date(esc.created_at)
             const timestamp = formatDistanceToNow(createdAt, { addSuffix: true })
@@ -68,8 +108,11 @@ export default function HitlPage() {
               session: esc.session_id, // Full session ID for linking
               week,
               primaryAgent: "Governance", // Default, could be enhanced with more data
-              summary: esc.escalation_reason || "Escalation requires human review",
-              agentOutputs: [], // Could be populated from session analysis result if needed
+              summary: summary,
+              agentOutputs: agentOutputs,
+              guardrailViolations: guardrailViolations,
+              recommendedActions: recommendedActions,
+              riskRationale: riskRationale,
               status,
               humanDecision: esc.human_decision || undefined,
               humanFeedback: esc.human_feedback || undefined,
@@ -123,6 +166,46 @@ export default function HitlPage() {
             console.debug(`Could not fetch session details for ${esc.session_id}:`, e)
           }
 
+          // Fetch full escalation details including context
+          let escalationDetails = null
+          let agentOutputs: EscalationItem['agentOutputs'] = []
+          let guardrailViolations: any[] = []
+          let recommendedActions: any[] = []
+          let summary = esc.escalation_reason || "Escalation requires human review"
+          let riskRationale = ""
+          
+          try {
+            escalationDetails = await apiClient.getEscalationDetails(esc.request_id, true)
+            if (escalationDetails) {
+              summary = escalationDetails.summary || summary
+              riskRationale = escalationDetails.risk_rationale || ""
+              
+              // Transform agent_outputs to frontend format
+              if (escalationDetails.agent_outputs && typeof escalationDetails.agent_outputs === 'object') {
+                agentOutputs = Object.entries(escalationDetails.agent_outputs).map(([agentName, output]: [string, any]) => ({
+                  id: agentName,
+                  name: agentName.charAt(0).toUpperCase() + agentName.slice(1) + " Agent",
+                  content: typeof output === 'string' ? output : JSON.stringify(output, null, 2),
+                  confidence: output?.confidence_score || output?.confidence || 0.85,
+                  flagged: false,
+                  warnings: output?.risk_flags || output?.warnings || []
+                }))
+              }
+              
+              // Extract guardrail violations
+              if (Array.isArray(escalationDetails.guardrail_violations)) {
+                guardrailViolations = escalationDetails.guardrail_violations
+              }
+              
+              // Extract recommended actions
+              if (Array.isArray(escalationDetails.recommended_actions)) {
+                recommendedActions = escalationDetails.recommended_actions
+              }
+            }
+          } catch (e) {
+            console.debug(`Could not fetch escalation details for ${esc.request_id}:`, e)
+          }
+
           const createdAt = new Date(esc.created_at)
           const timestamp = formatDistanceToNow(createdAt, { addSuffix: true })
           const status = (esc.status || "pending") as "pending" | "approved" | "rejected" | "modified"
@@ -135,8 +218,11 @@ export default function HitlPage() {
             session: esc.session_id,
             week,
             primaryAgent: "Governance",
-            summary: esc.escalation_reason || "Escalation requires human review",
-            agentOutputs: [],
+            summary: summary,
+            agentOutputs: agentOutputs,
+            guardrailViolations: guardrailViolations,
+            recommendedActions: recommendedActions,
+            riskRationale: riskRationale,
             status,
             humanDecision: esc.human_decision || undefined,
             humanFeedback: esc.human_feedback || undefined,

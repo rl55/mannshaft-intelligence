@@ -92,3 +92,12 @@ frontend/node_modules/
 # Build artifacts
 dist/
 *.egg-info/
+
+# Interim/Planning Documentation (keep essential docs only)
+docs/ADK_ARCHITECTURE.md
+docs/CLEANUP_PLAN.md
+docs/CLEANUP_COMPLETE.md
+docs/DEPLOYMENT_STATUS.md
+docs/INTEGRATION_FLOW_CHECK.md
+docs/INTEGRATION_SUMMARY.md
+docs/INTEGRATION.md

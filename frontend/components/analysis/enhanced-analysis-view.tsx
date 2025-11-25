@@ -266,16 +266,52 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
           console.log(`Setting agent ${agentId} to completed with confidence ${confidence}`)
           agentUpdate.status = "completed"
           agentUpdate.confidence = confidence
-        }
-
-        // Add log entry
-        if (event.message) {
+          
+          // Build detailed completion logs with insights
           if (!agentUpdate.logs) {
             agentUpdate.logs = []
           }
-          const logEntry = `> ${event.message}`
-          if (!agentUpdate.logs.includes(logEntry)) {
-            agentUpdate.logs.push(logEntry)
+          
+          // Add main completion message
+          if (event.message) {
+            agentUpdate.logs.push(`> ${event.message}`)
+          }
+          
+          // Add metrics summary if available
+          if (event.data?.metrics && Object.keys(event.data.metrics).length > 0) {
+            const metricsStr = Object.entries(event.data.metrics)
+              .map(([key, value]) => `${key}: ${value}`)
+              .join(", ")
+            agentUpdate.logs.push(`> Metrics: ${metricsStr}`)
+          }
+          
+          // Add key insights if available
+          if (event.data?.key_insights && Array.isArray(event.data.key_insights) && event.data.key_insights.length > 0) {
+            agentUpdate.logs.push(`> Key Insights:`)
+            event.data.key_insights.slice(0, 3).forEach((insight: string) => {
+              agentUpdate.logs.push(`>   • ${insight}`)
+            })
+          }
+          
+          // Add cache status if available
+          if (event.data?.cached !== undefined) {
+            agentUpdate.logs.push(`> Cache: ${event.data.cached ? "Hit" : "Miss"}`)
+          }
+          
+          // Add execution time if available
+          if (event.data?.execution_time_ms) {
+            agentUpdate.logs.push(`> Execution Time: ${(event.data.execution_time_ms / 1000).toFixed(2)}s`)
+          }
+        } else {
+          // Add log entry for other event types
+          if (event.message) {
+            if (!agentUpdate.logs) {
+              agentUpdate.logs = []
+            }
+            const logEntry = `> ${event.message}`
+            if (!agentUpdate.logs.includes(logEntry)) {
+              agentUpdate.logs.push(logEntry)
+            }
           }
         }
       }

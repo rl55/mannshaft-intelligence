@@ -76,6 +76,7 @@ class SessionResponse(BaseModel):
     session_type: str = Field(..., description="Type of session")
     user_id: Optional[str] = Field(None, description="User identifier")
     status: str = Field(..., description="Session status")
+    week_number: Optional[int] = Field(None, description="Week number for analysis")
     created_at: datetime = Field(..., description="Creation timestamp")
     ended_at: Optional[datetime] = Field(None, description="End timestamp")
 

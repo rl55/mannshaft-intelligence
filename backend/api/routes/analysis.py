@@ -17,7 +17,8 @@ from api.models.responses import (
     AnalysisResult,
     AnalysisStatusResponse
 )
-from agents.orchestrator import OrchestratorAgent, AnalysisType
+# ADK Integration
+from adk_integration import run_adk_analysis, AnalysisResult as ADKAnalysisResult
 from cache.cache_manager import CacheManager
 from database.db_manager import get_db_manager, DatabaseManager
 from utils.logger import logger
@@ -63,9 +64,16 @@ def get_cache_manager() -> CacheManager:
     return CacheManager()
 
 
-def get_orchestrator(cache_manager: CacheManager = Depends(get_cache_manager)) -> OrchestratorAgent:
-    """Get orchestrator instance."""
-    return OrchestratorAgent(cache_manager=cache_manager)
+def get_orchestrator(cache_manager: CacheManager = Depends(get_cache_manager)):
+    """
+    Get orchestrator instance.
+    
+    Note: ADK agents are executed through run_adk_analysis() function.
+    This function is kept for backward compatibility but is not used.
+    """
+    # ADK agents are executed via run_adk_analysis() function
+    # This function is kept for API compatibility but not used
+    return None
 
 
 async def run_analysis(
@@ -107,38 +115,23 @@ async def run_analysis(
             'timestamp': datetime.utcnow().isoformat()
         })
         
-        # Create event emitter function for orchestrator
+        # Create event emitter function for ADK agents
         async def emit_event(event_dict: Dict[str, Any]):
             await emit_websocket_event(session_id, event_dict)
         
-        # Get orchestrator with event emitter
-        orchestrator = OrchestratorAgent(cache_manager=cache_manager, event_emitter=emit_event)
-        
-        # Map analysis type to string (orchestrator expects string, not enum)
-        analysis_type_str = analysis_type  # Use the string directly
-        
-        # Update progress in database
-        db_manager.update_session_status(
-            session_id=session_id,
-            status='running',
-            progress=10,
-            current_step='Executing analytical agents'
-        )
-        await emit_websocket_event(session_id, {
-            'type': 'progress_update',
-            'session_id': session_id,
-            'progress': 10,
-            'message': 'Executing analytical agents'
-        })
-        
-        # Run analysis - orchestrator will emit real-time events as agents execute
-        # No need to emit agent_started/completed here - orchestrator handles it
-        result = await orchestrator.analyze_week(
+        # Run analysis using ADK agents
+        # ADK integration wrapper handles agent execution and result transformation
+        adk_result: ADKAnalysisResult = await run_adk_analysis(
             week_number=week_number,
-            analysis_type=analysis_type_str,
+            session_id=session_id,
+            analysis_type=analysis_type,
             user_id=user_id,
-            session_id=session_id  # Pass session_id so orchestrator uses the same session
+            event_emitter=emit_event
         )
+        
+        # Transform ADK result to expected format
+        # ADKAnalysisResult is compatible with the expected result structure
+        result = adk_result
         
         # Update progress - analysis complete, processing results
         db_manager.update_session_status(

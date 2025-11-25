@@ -45,43 +45,43 @@ def get_session_service() -> BaseSessionService:
 
 def get_runner(
     session_service: Optional[BaseSessionService] = None,
-    app_name: Optional[str] = None,
-    agent: Optional = None
+    app: Optional = None
 ) -> Runner:
     """
-    Get ADK Runner instance configured with session service.
+    Get ADK Runner instance configured with session service and app.
     
     Args:
         session_service: Optional SessionService instance. If None, will create one.
-        app_name: Optional app name for the runner
-        agent: Optional agent instance (required if app_name is provided)
+        app: Optional ADK App instance. If None, will import from adk_app.
     
     Returns:
-        Configured Runner instance
+        Configured Runner instance ready to execute agents
     
-    Note: Runner requires either an App instance or both app_name and agent.
-    This function will be updated once agents are created.
+    Usage:
+        from adk_setup import get_runner
+        from adk_app import app
+        
+        runner = get_runner(app=app)
+        result = await runner.run_async(
+            agent=app.root_agent,
+            context={"week_number": 10},
+            session_id="session-123"
+        )
     """
     if session_service is None:
         session_service = get_session_service()
     
-    # Runner requires either app or (app_name + agent)
-    # For now, we'll create a basic runner that can be extended later
-    # This will be updated when we create the actual agents
-    if app_name and agent:
-        runner = Runner(
-            session_service=session_service,
-            app_name=app_name,
-            agent=agent
-        )
-    else:
-        # Create a minimal runner for setup/testing
-        # This will be replaced when agents are created
-        logger.warning("Runner created without agent. Will need agent/app to be functional.")
-        # For now, we can't create a Runner without an agent/app
-        # This function will be updated in Phase 3 when agents are created
-        raise ValueError("Runner requires either app or both app_name and agent. Agents not yet created.")
+    # Import app if not provided
+    if app is None:
+        from adk_app import app
     
-    logger.info("ADK Runner initialized")
+    # Create Runner with App
+    # When app is provided, app_name should NOT be provided (ADK requirement)
+    runner = Runner(
+        session_service=session_service,
+        app=app  # Only provide app, not app_name
+    )
+    
+    logger.info(f"ADK Runner initialized with app: {app.name}")
     return runner
 

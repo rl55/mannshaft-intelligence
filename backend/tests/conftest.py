@@ -9,10 +9,20 @@ from pathlib import Path
 from unittest.mock import Mock, AsyncMock, patch
 
 from cache.cache_manager import CacheManager
-from agents.revenue_agent import RevenueAgent
-from agents.product_agent import ProductAgent
-from agents.support_agent import SupportAgent
-from agents.synthesizer_agent import SynthesizerAgent
+# TODO: Update tests to use ADK agents
+# Legacy agents removed - update to use:
+# from adk_agents.revenue_agent import create_revenue_agent
+# from adk_agents.product_agent import create_product_agent
+# from adk_agents.support_agent import create_support_agent
+# from adk_agents.synthesizer_agent import create_synthesizer_agent
+# 
+# See docs/CLEANUP_PLAN.md for migration details
+
+# Placeholder imports - tests need ADK migration
+RevenueAgent = None
+ProductAgent = None
+SupportAgent = None
+SynthesizerAgent = None
 from governance.guardrails import GuardrailAgent
 from governance.evaluation import Evaluator
 from governance.hitl_manager import HITLManager

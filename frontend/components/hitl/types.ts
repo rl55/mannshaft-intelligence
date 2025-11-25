@@ -7,6 +7,22 @@ export interface AgentOutput {
   warnings?: string[]
 }
 
+export interface GuardrailViolation {
+  rule_name: string
+  rule_type: string
+  severity: string
+  details: any
+  reasoning?: string
+}
+
+export interface RecommendedAction {
+  action: string
+  priority: string
+  expected_impact: string
+  pros?: string[]
+  cons?: string[]
+}
+
 export interface EscalationItem {
   id: string
   riskScore: number
@@ -17,6 +33,9 @@ export interface EscalationItem {
   primaryAgent: string
   summary: string
   agentOutputs: AgentOutput[]
+  guardrailViolations?: GuardrailViolation[]
+  recommendedActions?: RecommendedAction[]
+  riskRationale?: string
   status: "pending" | "approved" | "rejected" | "modified"
   humanDecision?: string
   humanFeedback?: string

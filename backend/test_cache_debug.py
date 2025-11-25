@@ -10,7 +10,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from cache.cache_manager import CacheManager
-from agents.revenue_agent import RevenueAgent
+# TODO: Update test to use ADK RevenueAgent
+# Legacy RevenueAgent removed - update to use ADK
+# See docs/CLEANUP_PLAN.md for migration details
+
+# Placeholder - test needs ADK migration
+RevenueAgent = None  # Legacy agent removed
 
 def test_cache_context():
     """Test if cache context is consistent."""

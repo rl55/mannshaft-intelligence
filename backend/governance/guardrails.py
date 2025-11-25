@@ -394,16 +394,92 @@ class GuardrailAgent:
         
         # SSN pattern (XXX-XX-XXXX)
         ssn_pattern = r'\b\d{3}-\d{2}-\d{4}\b'
-        # Credit card pattern (basic)
-        cc_pattern = r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b'
+        
+        # Credit card pattern (more specific to avoid false positives)
+        # Credit cards typically:
+        # - Start with 3, 4, 5, or 6 (Amex, Visa, Mastercard, Discover)
+        # - Are NOT year ranges (exclude 19xx-20xx patterns)
+        # - Have 16 digits total (or 15 for Amex)
+        # - May have spaces or dashes as separators
+        
+        # Pattern 1: 16-digit cards (Visa, Mastercard, Discover) - starts with 4, 5, or 6
+        cc_pattern_16 = r'\b[456]\d{3}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b'
+        # Pattern 2: 15-digit Amex - starts with 3
+        cc_pattern_15 = r'\b3\d{3}[\s-]?\d{6}[\s-]?\d{5}\b'
+        
+        # Exclude common false positives:
+        # - Year ranges: 19xx-20xx or 20xx-20xx patterns
+        # - Phone numbers: patterns that look like phone numbers
+        # - Common numeric sequences in analysis (like forecast arrays)
+        
         # Email pattern
         email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
         
         detected = []
+        matched_texts = []
+        
         if re.search(ssn_pattern, text):
             detected.append("SSN")
-        if re.search(cc_pattern, text):
+            matched_texts.extend(re.findall(ssn_pattern, text))
+        
+        # Check for credit cards (both patterns)
+        cc_matches_16 = re.findall(cc_pattern_16, text)
+        cc_matches_15 = re.findall(cc_pattern_15, text)
+        
+        # Filter out false positives: year ranges and common analysis patterns
+        filtered_cc_matches = []
+        for match in cc_matches_16 + cc_matches_15:
+            # Clean the match to check digits only
+            clean_match = match.replace(' ', '').replace('-', '')
+            
+            # Check if this looks like a year range
+            groups = re.split(r'[\s-]+', match)
+            is_year_range = False
+            if len(groups) == 4:
+                # Check if all groups look like years (start with 19 or 20)
+                is_year_range = all(
+                    (group.startswith('19') or group.startswith('20')) and len(group) == 4
+                    for group in groups
+                )
+                if is_year_range:
+                    self.logger.debug(f"Excluding year range pattern: {match}")
+                    continue
+            
+            # Exclude if it's clearly part of a forecast array or year range pattern
+            # Only exclude if the match itself looks like a year range AND is in analysis context
+            # Don't exclude if it's in payment/customer context (legitimate PII)
+            match_start = text.find(match)
+            if match_start > 0:
+                context_before = text[max(0, match_start-100):match_start].lower()
+                context_after = text[match_start+len(match):min(len(text), match_start+len(match)+100)].lower()
+                
+                # Check if it's in payment/customer context (legitimate PII - don't exclude)
+                payment_keywords = ['payment', 'card', 'credit', 'customer', 'billing', 'transaction', 'charge']
+                if any(keyword in context_before or keyword in context_after 
+                       for keyword in payment_keywords):
+                    # This is likely legitimate PII, don't exclude
+                    pass
+                else:
+                    # Only exclude if it's clearly a year range in analysis context
+                    analysis_keywords = ['forecast', 'year', 'trend', 'range', 'period', 
+                                        'week', 'month', 'quarter', 'annual', 'comparison', 'historical']
+                    if any(keyword in context_before or keyword in context_after 
+                           for keyword in analysis_keywords):
+                        # Double-check: if match looks like years, exclude it
+                        if is_year_range:
+                            self.logger.debug(f"Excluding year range pattern in analysis context: {match}")
+                            continue
+            
+            # Additional check: if digits are all the same or sequential (like 1111-1111-1111-1111),
+            # it might be a test pattern, but we'll still flag it as it could be real
+            # (This is a valid test card pattern)
+            
+            filtered_cc_matches.append(match)
+        
+        if filtered_cc_matches:
             detected.append("Credit Card")
+            matched_texts.extend(filtered_cc_matches)
+        
         if re.search(email_pattern, text):
             # Check if emails look like customer emails (not just generic domains)
             emails = re.findall(email_pattern, text)
@@ -412,11 +488,13 @@ class GuardrailAgent:
             )]
             if customer_emails:
                 detected.append(f"Customer Email ({len(customer_emails)} found)")
+                matched_texts.extend(customer_emails)
         
         is_violation = len(detected) > 0
         
         return is_violation, {
             'detected_pii': detected,
+            'matched_text': matched_texts[:5] if matched_texts else [],  # Include matched text for debugging
             'reasoning': f"PII detected: {', '.join(detected)}" if detected else ""
         }
     

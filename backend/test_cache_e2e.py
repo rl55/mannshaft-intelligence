@@ -13,7 +13,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from cache.cache_manager import CacheManager
-from agents.orchestrator import OrchestratorAgent
+# TODO: Update test to use ADK orchestrator
+# Legacy OrchestratorAgent removed - update to use ADK
+# See docs/CLEANUP_PLAN.md for migration details
+
+# Placeholder - test needs ADK migration
+OrchestratorAgent = None  # Legacy agent removed
 from utils.logger import logger
 
 async def test_cache_e2e():

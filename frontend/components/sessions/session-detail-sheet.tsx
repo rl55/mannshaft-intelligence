@@ -38,10 +38,12 @@ export function SessionDetailSheet({ session, isOpen, onClose }: SessionDetailSh
               <div className="bg-muted/50 rounded-lg p-3">
                 <div className="text-muted-foreground text-xs">Quality Score</div>
                 <div className="text-2xl font-bold text-green-600">{session.qualityScore || 0}%</div>
+                <div className="text-[10px] text-muted-foreground mt-1">Overall evaluation score</div>
               </div>
               <div className="bg-muted/50 rounded-lg p-3">
                 <div className="text-muted-foreground text-xs">Execution Time</div>
                 <div className="text-2xl font-bold">{session.executionTime}</div>
+                <div className="text-[10px] text-muted-foreground mt-1">Includes all agents + overhead</div>
               </div>
               <div className="bg-muted/50 rounded-lg p-3">
                 <div className="text-muted-foreground text-xs">Cache Hit Rate</div>
@@ -144,7 +146,8 @@ function AgentRow({ agent }: { agent: AgentExecutionMetric }) {
         )}
         <div>
           <div className="text-sm font-medium">{agent.name}</div>
-          <div className="text-muted-foreground text-xs">Confidence: {(agent.confidence * 100).toFixed(0)}%</div>
+          <div className="text-muted-foreground text-xs">Confidence: {agent.confidence}%</div>
+          <div className="text-[10px] text-muted-foreground mt-0.5">Per-agent confidence score</div>
         </div>
       </div>
       <div className="text-right">

@@ -50,24 +50,28 @@ google_sheets:
 sheets:
   revenue:
     spreadsheet_id: "${REVENUE_SHEET_ID}"  # Example: "1abc..."
+    # Note: Specifying just tab names reads ALL data from each tab (all rows and columns)
+    # To limit to a specific range, use format: "Tab Name!A1:N100"
     ranges:
-      - "Weekly Revenue!A1:N100"  # Main revenue data
-      - "Customer Cohorts!A1:K100"  # Cohort retention data
-      - "Revenue by Segment!A1:M100"  # Segment breakdown
+      - "Weekly Revenue"  # Reads all data from this tab
+      - "Customer Cohorts"  # Reads all data from this tab
+      - "Revenue by Segment"  # Reads all data from this tab
   
   product:
     spreadsheet_id: "${PRODUCT_SHEET_ID}"  # Example: "1def..."
+    # Note: Specifying just tab names reads ALL data from each tab (all rows and columns)
     ranges:
-      - "Engagement Metrics!A1:M100"  # DAU/WAU/MAU data
-      - "Feature Adoption!A1:M100"  # Feature usage data
-      - "User Journey Metrics!A1:M100"  # Activation and onboarding
+      - "Engagement Metrics"  # Reads all data from this tab
+      - "Feature Adoption"  # Reads all data from this tab
+      - "User Journey Metrics"  # Reads all data from this tab
   
   support:
     spreadsheet_id: "${SUPPORT_SHEET_ID}"  # Example: "1ghi..."
+    # Note: Specifying just tab names reads ALL data from each tab (all rows and columns)
     ranges:
-      - "Ticket Volume!A1:N100"  # Main ticket data
-      - "CSAT & Satisfaction!A1:M100"  # CSAT and NPS data
-      - "Support Categories!A1:M100"  # Category breakdown
+      - "Ticket Volume"  # Reads all data from this tab
+      - "CSAT & Satisfaction"  # Reads all data from this tab
+      - "Support Categories"  # Reads all data from this tab
 
 # Cache Configuration
 cache:

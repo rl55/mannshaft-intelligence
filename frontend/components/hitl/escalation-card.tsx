@@ -83,13 +83,118 @@ export function EscalationCard({ item, onDecision }: EscalationCardProps) {
             </div>
           </div>
 
-          {/* Summary Section */}
+          {/* Summary Section - Expanded to avoid scrolling */}
           <div className="space-y-1.5">
             <h3 className="text-xs font-semibold uppercase text-muted-foreground">Executive Summary</h3>
-            <div className="p-3 border rounded-md bg-background shadow-sm">
-              <p className="text-sm leading-relaxed text-foreground/90">{item.summary}</p>
+            <div className="p-4 border rounded-md bg-background shadow-sm max-h-[300px] overflow-y-auto">
+              <p className="text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">{item.summary}</p>
             </div>
           </div>
+
+          {/* Risk Rationale */}
+          {item.riskRationale && (
+            <div className="space-y-1.5">
+              <h3 className="text-xs font-semibold uppercase text-muted-foreground">Risk Rationale</h3>
+              <div className="p-3 border rounded-md bg-amber-50/50 dark:bg-amber-950/20 shadow-sm">
+                <p className="text-sm leading-relaxed text-foreground/90">{item.riskRationale}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Guardrail Violations */}
+          {item.guardrailViolations && item.guardrailViolations.length > 0 && (
+            <div className="space-y-1.5">
+              <h3 className="text-xs font-semibold uppercase text-muted-foreground">Guardrail Violations</h3>
+              <div className="space-y-2">
+                {item.guardrailViolations.map((violation, idx) => (
+                  <div key={idx} className="p-3 border rounded-md bg-red-50/50 dark:bg-red-950/20 shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={
+                            violation.severity === "critical" || violation.severity === "high"
+                              ? "destructive"
+                              : violation.severity === "medium"
+                              ? "secondary"
+                              : "outline"
+                          }
+                        >
+                          {violation.severity.toUpperCase()}
+                        </Badge>
+                        <span className="text-sm font-medium">{violation.rule_name}</span>
+                        <Badge variant="outline" className="text-xs">
+                          {violation.rule_type}
+                        </Badge>
+                      </div>
+                    </div>
+                    {violation.reasoning && (
+                      <p className="text-sm text-muted-foreground mb-2">{violation.reasoning}</p>
+                    )}
+                    {violation.details && (
+                      <details className="text-xs text-muted-foreground">
+                        <summary className="cursor-pointer hover:text-foreground">View Details</summary>
+                        <pre className="mt-2 p-2 bg-background rounded text-xs overflow-x-auto">
+                          {JSON.stringify(violation.details, null, 2)}
+                        </pre>
+                      </details>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Recommended Actions */}
+          {item.recommendedActions && item.recommendedActions.length > 0 && (
+            <div className="space-y-1.5">
+              <h3 className="text-xs font-semibold uppercase text-muted-foreground">Recommended Actions</h3>
+              <div className="space-y-2">
+                {item.recommendedActions.map((action, idx) => (
+                  <div key={idx} className="p-3 border rounded-md bg-blue-50/50 dark:bg-blue-950/20 shadow-sm">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium">{action.action}</span>
+                      <Badge
+                        variant={
+                          action.priority === "high"
+                            ? "destructive"
+                            : action.priority === "medium"
+                            ? "secondary"
+                            : "outline"
+                        }
+                      >
+                        {action.priority.toUpperCase()}
+                      </Badge>
+                    </div>
+                    <p className="text-sm text-muted-foreground mb-2">{action.expected_impact}</p>
+                    {(action.pros || action.cons) && (
+                      <div className="grid grid-cols-2 gap-2 mt-2">
+                        {action.pros && action.pros.length > 0 && (
+                          <div>
+                            <p className="text-xs font-medium text-green-700 dark:text-green-400 mb-1">Pros:</p>
+                            <ul className="text-xs text-muted-foreground list-disc list-inside space-y-0.5">
+                              {action.pros.map((pro, i) => (
+                                <li key={i}>{pro}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {action.cons && action.cons.length > 0 && (
+                          <div>
+                            <p className="text-xs font-medium text-red-700 dark:text-red-400 mb-1">Cons:</p>
+                            <ul className="text-xs text-muted-foreground list-disc list-inside space-y-0.5">
+                              {action.cons.map((con, i) => (
+                                <li key={i}>{con}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Agent Outputs */}
           <AgentOutputs outputs={item.agentOutputs} />

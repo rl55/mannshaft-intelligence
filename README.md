@@ -77,7 +77,7 @@ Modern SaaS companies generate massive amounts of data across multiple domains:
 
 ### **SaaS BI Agent Intelligence Platform**
 
-An **autonomous multi-agent system** powered by **Gemini 2.0 Flash** that transforms how SaaS companies understand their business.
+An **autonomous multi-agent system** built with **Google Agent Development Kit (ADK)** and powered by **Gemini 2.0 Flash** that transforms how SaaS companies understand their business.
 
 ### **How It Works**
 
@@ -91,19 +91,19 @@ Weekly Data → Specialized Agents → Cross-Domain Analysis → Actionable Insi
                 Support)
 ```
 
-### **Core Innovation: Multi-Agent Architecture**
+### **Core Innovation: ADK-Powered Multi-Agent Architecture**
 
-Instead of a single large model trying to do everything, we deploy **specialized agents** that work together:
+Built on **Google Agent Development Kit (ADK)**, we deploy **specialized agents** that work together:
 
-1. **Orchestrator Agent**: Coordinates the entire analysis workflow
-2. **Analytical Agents** (parallel execution):
-   - **Revenue Agent**: MRR, churn, ARPU, cohort analysis
-   - **Product Agent**: Engagement, adoption, retention
-   - **Support Agent**: Ticket analysis, satisfaction metrics
-3. **Synthesizer Agent**: Cross-correlates findings and generates strategic insights
+1. **ADK SequentialAgent (Main Orchestrator)**: Coordinates the entire analysis workflow
+2. **ADK ParallelAgent (Analytical Coordinator)**: Runs analytical agents concurrently:
+   - **Revenue Agent** (ADK LlmAgent): MRR, churn, ARPU, cohort analysis
+   - **Product Agent** (ADK LlmAgent): Engagement, adoption, retention
+   - **Support Agent** (ADK LlmAgent): Ticket analysis, satisfaction metrics
+3. **Synthesizer Agent** (ADK LlmAgent with tools): Cross-correlates findings and generates strategic insights
 4. **Governance Layer**:
-   - **Guardrail Agent**: Ensures quality, privacy, and cost controls
-   - **Evaluation Agent**: Validates output quality and factual grounding
+   - **Governance Agent** (ADK BaseAgent): Ensures quality, privacy, and cost controls
+   - **Evaluation Agent** (ADK LlmAgent): Validates output quality and factual grounding
    - **HITL Manager**: Escalates high-risk insights for human review
 
 ### **Key Differentiators**
@@ -128,8 +128,10 @@ Instead of a single large model trying to do everything, we deploy **specialized
 
 ### **🧠 Advanced AI Capabilities**
 
-- **Gemini 2.0 Flash Integration**: State-of-the-art reasoning and analysis
-- **Semantic Caching**: 75%+ cache hit rate reduces API costs by 3x
+- **Google ADK Integration**: Production-ready agent framework with built-in orchestration
+- **Gemini 2.0 Flash Integration**: State-of-the-art reasoning and analysis via ADK LlmAgent
+- **ADK Context Caching**: Built-in context compression and caching reduces API costs by 3x
+- **ADK Session Management**: Persistent session state with SQLite sync
 - **Prompt Engineering**: Optimized prompts with few-shot examples for consistency
 - **Structured Outputs**: JSON schema validation ensures reliable parsing
 
@@ -142,13 +144,14 @@ Instead of a single large model trying to do everything, we deploy **specialized
 
 ### **⚡ Performance & Scalability**
 
-- **Multi-Level Caching**:
-  - Prompt-level cache (7-day TTL)
+- **ADK Context Caching**: Built-in multi-level caching with compression
+  - Context cache (configurable TTL)
   - Agent-level cache (24-hour TTL)
   - Evaluation cache (7-day TTL)
-- **Distributed Tracing**: Full observability of multi-agent workflows
-- **Cost Optimization**: Intelligent caching saves ~$2.34/week (75% reduction)
-- **Real-Time Updates**: WebSocket-powered live progress tracking
+- **ADK Distributed Tracing**: Full observability of multi-agent workflows
+- **Cost Optimization**: ADK caching saves ~$2.34/week (75% reduction)
+- **Real-Time Updates**: ADK bidi-streaming for live progress tracking
+- **Deployment Ready**: Deployable to GCP Cloud Run or Vertex AI
 
 ### **📊 Rich Analytics Dashboard**
 
@@ -160,7 +163,8 @@ Instead of a single large model trying to do everything, we deploy **specialized
 
 ### **🔌 Seamless Integrations**
 
-- **Google Sheets MCP**: Read SaaS metrics from spreadsheets
+- **ADK MCP Tools**: Google Sheets integration via ADK FunctionTool
+- **ADK API Server**: Unified FastAPI app with ADK agent endpoints
 - **Google Search**: Validate insights against market data
 - **Custom Tools**: Extensible architecture for additional data sources
 
@@ -615,6 +619,14 @@ The setup script will:
 ```bash
 ./stop.sh
 ```
+
+---
+
+## **📚 Documentation**
+
+- **[Architecture](docs/ARCHITECTURE.md)** - Complete ADK-based system architecture
+- **[Deployment](docs/DEPLOYMENT.md)** - GCP Cloud Run & Vertex AI deployment guide
+- **[API Documentation](backend/api/API_README.md)** - Backend API reference
 
 ---
 

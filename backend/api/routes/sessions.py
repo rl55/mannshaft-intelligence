@@ -53,6 +53,7 @@ async def get_sessions(
                 session_type=session['session_type'],
                 user_id=session.get('user_id'),
                 status=session.get('current_status') or session.get('status', 'unknown'),
+                week_number=session.get('week_number'),
                 created_at=session['created_at'] if isinstance(session['created_at'], datetime) else datetime.fromisoformat(session['created_at']),
                 ended_at=session.get('completed_at') or session.get('failed_at') or session.get('ended_at')
             )
@@ -95,6 +96,7 @@ async def get_session(
             session_type=session['session_type'],
             user_id=session.get('user_id'),
             status=session.get('current_status') or session.get('status', 'unknown'),
+            week_number=session.get('week_number'),
             created_at=session['created_at'] if isinstance(session['created_at'], datetime) else datetime.fromisoformat(session['created_at']),
             ended_at=session.get('completed_at') or session.get('failed_at')
         )

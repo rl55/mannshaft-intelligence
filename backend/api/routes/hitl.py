@@ -132,6 +132,74 @@ async def get_all_hitl_requests(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{escalation_id}/details")
+async def get_escalation_details(
+    escalation_id: str,
+    hitl_manager: HITLManager = Depends(get_hitl_manager)
+):
+    """
+    Get full escalation details including context (agent_outputs, guardrail_violations, etc.).
+    
+    Args:
+        escalation_id: Escalation/request ID
+        
+    Returns:
+        Full escalation details with context
+    """
+    try:
+        conn = hitl_manager.cache_manager.connect()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT * FROM hitl_requests
+            WHERE request_id = ?
+        """, (escalation_id,))
+        
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Escalation not found")
+        
+        req = dict(row)
+        
+        # Parse context JSON
+        context = {}
+        if req.get('context'):
+            try:
+                import json
+                context = json.loads(req['context']) if isinstance(req['context'], str) else req['context']
+            except (json.JSONDecodeError, TypeError):
+                context = {}
+        
+        # Extract structured details from context
+        escalation_details = {
+            "request_id": req.get('request_id'),
+            "session_id": req.get('trace_id'),
+            "escalation_reason": req.get('reason'),
+            "risk_score": context.get('risk_score', 0.0),
+            "risk_rationale": context.get('risk_rationale', ''),
+            "summary": context.get('summary', ''),
+            "agent_outputs": context.get('agent_outputs', {}),
+            "guardrail_violations": context.get('guardrail_violations', []),
+            "recommended_actions": context.get('recommended_actions', []),
+            "evaluation_details": context.get('evaluation_details'),
+            "review_url": context.get('review_url'),
+            "status": req.get('status', 'pending'),
+            "human_decision": req.get('human_decision'),
+            "human_feedback": req.get('human_feedback'),
+            "created_at": req.get('timestamp'),
+            "resolved_at": req.get('resolved_at'),
+            "resolution_time_minutes": req.get('resolution_time_minutes')
+        }
+        
+        return escalation_details
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting escalation details: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/{escalation_id}/resolve")
 async def resolve_hitl_request(
     escalation_id: str,

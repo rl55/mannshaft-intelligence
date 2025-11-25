@@ -502,27 +502,32 @@ class GoogleSheetsIntegration:
             raise ValueError("Revenue spreadsheet_id not configured")
         
         ranges = revenue_config.get('ranges', [
-            "Weekly Revenue!A1:N100",
-            "Customer Cohorts!A1:K100",
-            "Revenue by Segment!A1:M100"
+            "Weekly Revenue",
+            "Customer Cohorts",
+            "Revenue by Segment"
         ])
         
         all_data_points = []
         metadata = {
             'week_number': week_number,
-            'ranges_fetched': []
+            'ranges_fetched': [],
+            'tabs_read': []
         }
         
         freshness = None
         
         for range_spec in ranges:
             try:
-                # Parse range (e.g., "Revenue Metrics!A1:G100")
+                # Parse range (e.g., "Revenue Metrics!A1:G100" or just "Revenue Metrics")
                 if '!' in range_spec:
                     sheet_name, range_name = range_spec.split('!', 1)
+                    # If range is specified but we want to read all data, use None
+                    # This allows reading all rows/columns dynamically
+                    if range_name and range_name.upper() == 'ALL':
+                        range_name = None
                 else:
                     sheet_name = range_spec
-                    range_name = None
+                    range_name = None  # Read all data from the sheet
                 
                 data, range_freshness = await self.read_sheet_data(
                     spreadsheet_id=spreadsheet_id,
@@ -545,6 +550,7 @@ class GoogleSheetsIntegration:
                             all_data_points.append(data_point)
                 
                 metadata['ranges_fetched'].append(range_spec)
+                metadata['tabs_read'].append(sheet_name)
                 
             except Exception as e:
                 self.logger.error(f"Error reading revenue range {range_spec}: {e}", exc_info=True)
@@ -574,27 +580,31 @@ class GoogleSheetsIntegration:
             raise ValueError("Product spreadsheet_id not configured")
         
         ranges = product_config.get('ranges', [
-            "Engagement Metrics!A1:M100",
-            "Feature Adoption!A1:M100",
-            "User Journey Metrics!A1:M100"
+            "Engagement Metrics",
+            "Feature Adoption",
+            "User Journey Metrics"
         ])
         
         all_data_points = []
         metadata = {
             'week_number': week_number,
-            'ranges_fetched': []
+            'ranges_fetched': [],
+            'tabs_read': []
         }
         
         freshness = None
         
         for range_spec in ranges:
             try:
-                # Parse range
+                # Parse range (e.g., "Engagement Metrics!A1:M100" or just "Engagement Metrics")
                 if '!' in range_spec:
                     sheet_name, range_name = range_spec.split('!', 1)
+                    # If range is specified but we want to read all data, use None
+                    if range_name and range_name.upper() == 'ALL':
+                        range_name = None
                 else:
                     sheet_name = range_spec
-                    range_name = None
+                    range_name = None  # Read all data from the sheet
                 
                 data, range_freshness = await self.read_sheet_data(
                     spreadsheet_id=spreadsheet_id,
@@ -616,6 +626,7 @@ class GoogleSheetsIntegration:
                             all_data_points.append(data_point)
                 
                 metadata['ranges_fetched'].append(range_spec)
+                metadata['tabs_read'].append(sheet_name)
                 
             except Exception as e:
                 self.logger.error(f"Error reading product range {range_spec}: {e}", exc_info=True)
@@ -644,27 +655,31 @@ class GoogleSheetsIntegration:
             raise ValueError("Support spreadsheet_id not configured")
         
         ranges = support_config.get('ranges', [
-            "Ticket Volume!A1:N100",
-            "CSAT & Satisfaction!A1:M100",
-            "Support Categories!A1:M100"
+            "Ticket Volume",
+            "CSAT & Satisfaction",
+            "Support Categories"
         ])
         
         all_data_points = []
         metadata = {
             'week_number': week_number,
-            'ranges_fetched': []
+            'ranges_fetched': [],
+            'tabs_read': []
         }
         
         freshness = None
         
         for range_spec in ranges:
             try:
-                # Parse range
+                # Parse range (e.g., "Ticket Volume!A1:N100" or just "Ticket Volume")
                 if '!' in range_spec:
                     sheet_name, range_name = range_spec.split('!', 1)
+                    # If range is specified but we want to read all data, use None
+                    if range_name and range_name.upper() == 'ALL':
+                        range_name = None
                 else:
                     sheet_name = range_spec
-                    range_name = None
+                    range_name = None  # Read all data from the sheet
                 
                 data, range_freshness = await self.read_sheet_data(
                     spreadsheet_id=spreadsheet_id,
@@ -686,6 +701,7 @@ class GoogleSheetsIntegration:
                             all_data_points.append(data_point)
                 
                 metadata['ranges_fetched'].append(range_spec)
+                metadata['tabs_read'].append(sheet_name)
                 
             except Exception as e:
                 self.logger.error(f"Error reading support range {range_spec}: {e}", exc_info=True)

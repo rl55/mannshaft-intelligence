@@ -18,11 +18,21 @@ from typing import Dict, Any
 # Add backend to path
 sys.path.insert(0, '.')
 
-from agents.revenue_agent import RevenueAgent
-from agents.product_agent import ProductAgent
-from agents.support_agent import SupportAgent
-from agents.synthesizer_agent import SynthesizerAgent
-from agents.orchestrator import OrchestratorAgent
+# TODO: Update test to use ADK agents
+# Legacy agents removed - update to use ADK agents:
+# from adk_agents.revenue_agent import create_revenue_agent
+# from adk_agents.product_agent import create_product_agent
+# from adk_agents.support_agent import create_support_agent
+# from adk_agents.synthesizer_agent import create_synthesizer_agent
+# from adk_agents.orchestrator import create_main_orchestrator
+# See docs/CLEANUP_PLAN.md for migration details
+
+# Placeholder imports - test needs ADK migration
+RevenueAgent = None
+ProductAgent = None
+SupportAgent = None
+SynthesizerAgent = None
+OrchestratorAgent = None
 from cache.cache_manager import CacheManager
 from integrations.google_sheets import GoogleSheetsClient
 from utils.config import config
