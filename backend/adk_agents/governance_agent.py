@@ -1,7 +1,6 @@
 """
-ADK Governance Agent (Custom Agent Wrapper)
-Wraps existing backend/governance/guardrails.py logic for ADK integration.
-Maintains same functionality: guardrail validation and HITL escalation.
+ADK Governance Agent (Custom BaseAgent)
+Proper ADK agent extending BaseAgent for guardrail validation and HITL escalation.
 
 This agent provides:
 - Hard Guardrails: Cannot be overridden (PII detection, privacy, cost limits, hallucination detection)
@@ -9,87 +8,173 @@ This agent provides:
 - Rule Engine: Configurable rules with thresholds
 - HITL Escalation: Escalates high-risk insights for human review
 - Learning: Adapts thresholds based on HITL feedback
-
-Note: This is a wrapper around the existing GuardrailAgent logic.
-The actual validation logic remains in backend/governance/guardrails.py.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, AsyncGenerator
+from google.adk.agents.base_agent import BaseAgent
+from google.adk.events import Event
 from utils.logger import logger
 
 # Import existing governance logic
 from governance.guardrails import GuardrailAgent, GuardrailResult
-from governance.hitl_manager import HITLManager
 from cache.cache_manager import CacheManager
 
 
-class GovernanceAgentWrapper:
+class GovernanceAgent(BaseAgent):
     """
-    Wrapper for Governance Agent to integrate with ADK.
-    
-    This wraps the existing GuardrailAgent logic for use in ADK workflows.
-    The actual validation logic remains in backend/governance/guardrails.py.
+    ADK Custom Agent for governance and guardrail validation.
     
     This agent validates synthesized insights against:
     - Hard rules: PII detection, privacy, cost limits, hallucination detection
     - Adaptive rules: Risk-scored policies with learning capabilities
     
     Features:
-    - Rule-based validation
+    - Rule-based validation (not LLM-driven)
     - HITL escalation for high-risk violations
     - Adaptive rule learning from feedback
     - Comprehensive violation tracking
     """
     
-    def __init__(self, cache_manager: Optional[CacheManager] = None):
+    # Use Pydantic model config to allow extra fields
+    model_config = {"extra": "allow"}
+    
+    def __init__(self, cache_manager: Optional[CacheManager] = None, **kwargs):
         """
-        Initialize Governance Agent Wrapper.
+        Initialize Governance Agent.
         
         Args:
             cache_manager: Cache manager instance
+            **kwargs: Additional BaseAgent parameters
         """
-        self.cache_manager = cache_manager or CacheManager()
-        self.guardrail_agent = GuardrailAgent(self.cache_manager)
-        self.hitl_manager = HITLManager(self.cache_manager)
-        self.logger = logger.getChild('governance_agent')
-        self.name = "governance_agent"
-        
-        self.logger.info("ADK Governance Agent Wrapper initialized")
-    
-    async def validate(
-        self,
-        synthesized_response: Dict[str, Any],
-        session_id: Optional[str] = None,
-        trace_id: Optional[str] = None
-    ) -> GuardrailResult:
-        """
-        Validate synthesized response against guardrails.
-        
-        Args:
-            synthesized_response: Synthesized insights to validate
-            session_id: Session identifier
-            trace_id: Optional trace identifier
-            
-        Returns:
-            GuardrailResult with validation results
-        """
-        # Use existing GuardrailAgent logic
-        result = await self.guardrail_agent.validate(
-            agent_type='synthesizer',
-            response=synthesized_response,
-            session_id=session_id or "unknown",
-            trace_id=trace_id
+        # Initialize BaseAgent with name and description
+        super().__init__(
+            name="governance_agent",
+            description="Validates synthesized insights against hard and adaptive guardrails",
+            **kwargs
         )
         
-        return result
+        # Store cache_manager and guardrail_agent as instance attributes
+        # Using object.__setattr__ to bypass Pydantic validation
+        object.__setattr__(self, 'cache_manager', cache_manager or CacheManager())
+        object.__setattr__(self, 'guardrail_agent', GuardrailAgent(self.cache_manager))
+        object.__setattr__(self, 'logger', logger.getChild('governance_agent'))
+        
+        self.logger.info("ADK Governance Agent initialized")
+    
+    async def run_async(self, parent_context) -> AsyncGenerator[Event, None]:
+        """
+        ADK agent execution method.
+        
+        Validates synthesized response against guardrails and escalates if needed.
+        
+        Args:
+            parent_context: ADK InvocationContext from parent agent
+            
+        Yields:
+            Event objects with validation results
+        """
+        try:
+            # Extract synthesized response from context
+            # In ADK, previous agent's output is typically in the context messages
+            synthesized_response = None
+            session_id = None
+            trace_id = None
+            
+            # Try to get synthesized response from context
+            # ADK context typically has messages from previous agents
+            if hasattr(parent_context, 'messages') and parent_context.messages:
+                # Get the last message which should be from SynthesizerAgent
+                last_message = parent_context.messages[-1]
+                if hasattr(last_message, 'content'):
+                    # Parse content - could be JSON string or dict
+                    import json
+                    content = last_message.content
+                    if isinstance(content, str):
+                        try:
+                            synthesized_response = json.loads(content)
+                        except json.JSONDecodeError:
+                            synthesized_response = {"raw_content": content}
+                    elif isinstance(content, dict):
+                        synthesized_response = content
+            
+            # Fallback: try to get from context attributes
+            if not synthesized_response:
+                if hasattr(parent_context, 'session_id'):
+                    session_id = parent_context.session_id
+                if hasattr(parent_context, 'trace_id'):
+                    trace_id = parent_context.trace_id
+                # Try to extract from context state
+                if hasattr(parent_context, 'state'):
+                    state = parent_context.state
+                    if isinstance(state, dict):
+                        synthesized_response = state.get('synthesized_response')
+            
+            if not synthesized_response:
+                self.logger.warning("No synthesized response found in context, using empty dict")
+                synthesized_response = {}
+            
+            # Get session_id and trace_id
+            if hasattr(parent_context, 'session_id'):
+                session_id = parent_context.session_id or "unknown"
+            if hasattr(parent_context, 'trace_id'):
+                trace_id = parent_context.trace_id
+            
+            # Validate against guardrails using existing logic
+            # Note: GuardrailAgent.evaluate is synchronous, but we're in async context
+            # We'll call it directly (it's fast, rule-based)
+            result: GuardrailResult = self.guardrail_agent.evaluate(
+                insights=synthesized_response,
+                session_id=session_id or "unknown",
+                trace_id=trace_id
+            )
+            
+            # Create event with validation results
+            event_content = {
+                "validation_passed": result.passed,
+                "violations": [
+                    {
+                        "rule_name": v.rule_name,
+                        "rule_type": v.rule_type,
+                        "severity": v.severity,
+                        "details": v.details,
+                        "reasoning": v.reasoning
+                    }
+                    for v in result.violations
+                ],
+                "risk_score": result.risk_score,
+                "action": result.action,
+                "reasoning": result.reasoning,
+                "hitl_request_id": result.hitl_request_id
+            }
+            
+            # Yield event
+            event = Event(
+                author=self.name,
+                content=event_content
+            )
+            
+            yield event
+            
+        except Exception as e:
+            self.logger.error(f"Error in Governance Agent: {e}", exc_info=True)
+            # Yield error event
+            error_event = Event(
+                author=self.name,
+                content={
+                    "error": str(e),
+                    "validation_passed": False,
+                    "action": "error"
+                }
+            )
+            yield error_event
 
 
-def create_governance_agent(cache_manager: Optional[CacheManager] = None) -> GovernanceAgentWrapper:
+def create_governance_agent(cache_manager: Optional[CacheManager] = None) -> GovernanceAgent:
     """
-    Create ADK Governance Agent Wrapper.
+    Create ADK Governance Agent.
     
     Returns:
-        Configured GovernanceAgentWrapper instance
+        Configured GovernanceAgent instance
     """
-    return GovernanceAgentWrapper(cache_manager=cache_manager)
+    return GovernanceAgent(cache_manager=cache_manager)
 

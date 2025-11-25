@@ -56,24 +56,19 @@ def create_main_orchestrator() -> SequentialAgent:
     governance_agent = create_governance_agent()
     evaluation_agent = create_evaluation_agent()
     
-    # Create SequentialAgent orchestrator
-    # Note: Governance and Evaluation are wrappers, not ADK agents
-    # We'll need to integrate them properly - for now, creating SequentialAgent with
-    # the agents that are ADK-compatible
+    # Create SequentialAgent orchestrator with all agents
     orchestrator = SequentialAgent(
         name="main_orchestrator",
         description="End-to-end SaaS BI analysis orchestrator coordinating analytical agents, synthesis, governance, and evaluation",
         sub_agents=[
-            analytical_coordinator,  # ParallelAgent
-            synthesizer_agent,        # LlmAgent
-            # governance_agent and evaluation_agent need to be integrated differently
-            # as they're wrappers around existing logic
-            # TODO: Integrate governance and evaluation properly
+            analytical_coordinator,  # ParallelAgent (Revenue, Product, Support)
+            synthesizer_agent,        # LlmAgent (Cross-functional synthesis)
+            governance_agent,         # BaseAgent (Guardrail validation)
+            evaluation_agent,         # LlmAgent (Quality evaluation)
         ]
     )
     
-    logger.info("ADK Main Orchestrator (SequentialAgent) created")
-    logger.warning("Governance and Evaluation agents need proper ADK integration - currently SequentialAgent only includes ParallelAgent and Synthesizer")
+    logger.info("ADK Main Orchestrator (SequentialAgent) created with all agents")
     
     return orchestrator
 
