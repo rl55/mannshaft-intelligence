@@ -9,7 +9,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Next.js 14](https://img.shields.io/badge/Next.js-14-black)](https://nextjs.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-009688.svg)](https://fastapi.tiangolo.com)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: GNU GPLv3](https://img.shields.io/badge/License-GNU_GPL_v3-blue)](https://github.com/rl55/mannshaft-intelligence/blob/main/LICENSE)
 
 [Demo](#demo) • [Architecture](#architecture) • [Quick Start](#quick-start) • [Documentation](#documentation)
 
@@ -1235,19 +1235,7 @@ git push origin feature/your-feature-name
 
 ## **📄 License**
 
-This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
-
-```
-MIT License
-
-Copyright (c) 2025 [Your Name]
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software...
-```
+This project is licensed under the **GNU GPLv3** - see the [LICENSE](https://github.com/rl55/mannshaft-intelligence/blob/main/LICENSE) file for details.
 
 ---
 
