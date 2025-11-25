@@ -474,6 +474,17 @@ class OrchestratorAgent:
                 self.logger.warning(f"Agent {agent_type} not found, skipping")
                 continue
             
+            # Emit agent_started event BEFORE starting execution
+            if self.event_emitter:
+                await self.event_emitter({
+                    'type': 'agent_started',
+                    'session_id': session_id,
+                    'agent': agent_type,
+                    'progress': 15 + (len(tasks) * 5),  # Progress: 15, 20, 25 for 3 agents
+                    'message': f'{agent_type.capitalize()} agent started',
+                    'timestamp': datetime.now().isoformat()
+                })
+            
             # Create agent-specific context
             agent_context = {
                 'week_number': week_number,
@@ -520,6 +531,22 @@ class OrchestratorAgent:
             try:
                 result = await task
                 results[agent_type] = result
+                
+                # Emit agent_completed event AFTER completion
+                if self.event_emitter:
+                    confidence_score = result.get('confidence_score', 0.85)
+                    await self.event_emitter({
+                        'type': 'agent_completed',
+                        'session_id': session_id,
+                        'agent': agent_type,
+                        'progress': 50,  # All analytical agents complete at 50%
+                        'message': f'{agent_type.capitalize()} agent completed',
+                        'data': {
+                            'confidence': confidence_score
+                        },
+                        'timestamp': datetime.now().isoformat()
+                    })
+                
                 self.logger.info(
                     f"Agent {agent_type} completed",
                     extra={
@@ -536,6 +563,19 @@ class OrchestratorAgent:
                     'execution_time_ms': self.timeout_seconds * 1000,
                     'error': 'timeout'
                 }
+                # Emit error event
+                if self.event_emitter:
+                    await self.event_emitter({
+                        'type': 'agent_completed',
+                        'session_id': session_id,
+                        'agent': agent_type,
+                        'progress': 50,
+                        'message': f'{agent_type.capitalize()} agent timed out',
+                        'data': {
+                            'confidence': 0.0
+                        },
+                        'timestamp': datetime.now().isoformat()
+                    })
             except Exception as e:
                 self.logger.error(
                     f"Agent {agent_type} failed",
@@ -549,6 +589,19 @@ class OrchestratorAgent:
                     'execution_time_ms': 0,
                     'error': str(e)
                 }
+                # Emit error event
+                if self.event_emitter:
+                    await self.event_emitter({
+                        'type': 'agent_completed',
+                        'session_id': session_id,
+                        'agent': agent_type,
+                        'progress': 50,
+                        'message': f'{agent_type.capitalize()} agent failed',
+                        'data': {
+                            'confidence': 0.0
+                        },
+                        'timestamp': datetime.now().isoformat()
+                    })
         
         return results
     

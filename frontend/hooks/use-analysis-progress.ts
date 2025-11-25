@@ -51,14 +51,15 @@ export function useAnalysisProgress(
     maxReconnectAttempts = 5,
     onComplete,
     onError,
-    waitForSession = true,
-    initialDelay = 500, // Wait 500ms for session to be created
+    waitForSession = false, // Don't wait - connect immediately
+    initialDelay = 0, // Connect IMMEDIATELY - no delay
   } = options;
 
   const [events, setEvents] = useState<AnalysisEvent[]>([]);
   const [progress, setProgress] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false); // Track connection attempt
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -90,8 +91,9 @@ export function useAnalysisProgress(
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log("WebSocket connected for session:", sessionId);
+        console.log("✅ WebSocket CONNECTED for session:", sessionId, "URL:", wsUrl);
         setIsConnected(true);
+        setIsConnecting(false);
         setIsReconnecting(false);
         reconnectAttemptsRef.current = 0;
         hasConnectedRef.current = true; // Mark that we've successfully connected
@@ -99,6 +101,7 @@ export function useAnalysisProgress(
         // Send initial ping to keep connection alive
         try {
           ws.send(JSON.stringify({ type: "ping" }));
+          console.log("Sent initial ping to WebSocket");
         } catch (error) {
           console.warn("Failed to send initial ping:", error);
         }
@@ -118,14 +121,24 @@ export function useAnalysisProgress(
             timestamp: data.timestamp || Date.now(),
           };
 
-          console.log("WebSocket event received:", {
+          console.log("📨 WebSocket event received:", {
             type: data.type,
+            agent: data.agent,
             progress: data.progress,
             message: data.message,
+            data: data.data,
             sessionId,
+            timestamp: data.timestamp,
+            rawDataLength: event.data.length,
+            rawDataPreview: event.data.substring(0, 200), // Log first 200 chars for debugging
           });
 
-          setEvents((prev) => [...prev, eventWithTimestamp]);
+          // Add event to array - React will batch updates, but we process all events in useEffect
+          setEvents((prev) => {
+            const updated = [...prev, eventWithTimestamp];
+            console.log(`Events array updated: ${prev.length} -> ${updated.length} events`);
+            return updated;
+          });
           
           // Handle completion - ensure progress is set to 100
           if (data.type === "completed" || data.progress >= 100) {
@@ -177,6 +190,7 @@ export function useAnalysisProgress(
 
       ws.onclose = (event) => {
         setIsConnected(false);
+        setIsConnecting(false);
         
         // If we never successfully connected and it closed immediately, it might be a session issue
         const closedImmediately = !hasConnectedRef.current && event.code === 1006;
@@ -277,45 +291,38 @@ export function useAnalysisProgress(
     reconnectAttemptsRef.current = 0;
     let isMounted = true;
 
-    // Optional: Verify session exists before connecting
-    const attemptConnection = async () => {
-      if (waitForSession) {
-        try {
-          // Try to get session status to verify it exists
-          await apiClient.getAnalysisStatus(sessionId);
-          console.log("Session verified, connecting WebSocket...");
-        } catch (error: any) {
-          // Handle 404s silently - session might not be initialized yet
-          if (error?.statusCode === 404) {
-            // Silently retry connection after delay (session might be initializing)
-            if (isMounted) {
-              initialConnectTimeoutRef.current = setTimeout(() => {
-                if (isMounted) connect();
-              }, initialDelay);
-            }
-            return;
-          }
-          // Log other errors
-          console.warn("Session verification failed, will retry:", error);
-          // Still attempt connection, but with delay
-          if (isMounted) {
-            initialConnectTimeoutRef.current = setTimeout(() => {
-              if (isMounted) connect();
-            }, initialDelay);
-          }
-          return;
+    // Connect immediately - don't wait for session verification
+    // The backend will handle missing sessions gracefully
+    setIsConnecting(true);
+    
+    // Connect WebSocket IMMEDIATELY - don't wait for HTTP status check
+    // This ensures we're connected before backend starts processing
+    if (isMounted) {
+      console.log(`🚀 Connecting WebSocket IMMEDIATELY for session: ${sessionId}`);
+      // Use setTimeout with 0ms to ensure it runs after current execution context
+      initialConnectTimeoutRef.current = setTimeout(() => {
+        if (isMounted) {
+          connect();
         }
-      }
-      
-      // Connect after initial delay to allow session to be fully initialized
-      if (isMounted) {
-        initialConnectTimeoutRef.current = setTimeout(() => {
-          if (isMounted) connect();
-        }, initialDelay);
+      }, initialDelay);
+    }
+    
+    // Fetch initial status in parallel (non-blocking)
+    const fetchInitialStatus = async () => {
+      try {
+        const status = await apiClient.getAnalysisStatus(sessionId);
+        if (status.progress !== undefined) {
+          setProgress(status.progress);
+        }
+        console.log("Fetched initial status via HTTP:", status);
+      } catch (error: any) {
+        // Ignore errors - WebSocket will provide updates
+        console.log("Initial status fetch failed (will use WebSocket):", error?.statusCode);
       }
     };
-
-    attemptConnection();
+    
+    // Fetch status in parallel, don't block WebSocket connection
+    fetchInitialStatus();
 
     return () => {
       isMounted = false;
@@ -358,6 +365,7 @@ export function useAnalysisProgress(
     events,
     progress,
     isConnected,
+    isConnecting,
     isReconnecting,
     sendMessage,
     disconnect,

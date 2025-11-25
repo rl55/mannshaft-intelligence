@@ -25,6 +25,8 @@ export default function DashboardPage() {
   const handleStartAnalysis = async (week: string) => {
     setAnalysisWeek(week)
     setIsAnalyzing(true)
+    // Don't wait for sessionId - show analysis view immediately
+    // The EnhancedAnalysisView will handle the loading state
     
     try {
       const response = await triggerAnalysis(
@@ -35,6 +37,7 @@ export default function DashboardPage() {
       setSessionId(response.session_id)
     } catch (error) {
       setIsAnalyzing(false)
+      setSessionId(null)
       // Error is handled by the store/API client
     }
   }
@@ -66,16 +69,25 @@ export default function DashboardPage() {
 
       <main className="flex-1 p-6 overflow-auto">
         <div className="space-y-6">
-          {isAnalyzing && sessionId ? (
+          {isAnalyzing ? (
             <Suspense fallback={<div>Loading analysis...</div>}>
-              <EnhancedAnalysisView
-                sessionId={sessionId}
-                weekId={analysisWeek}
-                onClose={() => {
-                  setIsAnalyzing(false)
-                  setSessionId(null)
-                }}
-              />
+              {sessionId ? (
+                <EnhancedAnalysisView
+                  sessionId={sessionId}
+                  weekId={analysisWeek}
+                  onClose={() => {
+                    setIsAnalyzing(false)
+                    setSessionId(null)
+                  }}
+                />
+              ) : (
+                <div className="flex items-center justify-center p-12">
+                  <div className="text-center space-y-4">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+                    <p className="text-muted-foreground">Starting analysis for Week {analysisWeek}...</p>
+                  </div>
+                </div>
+              )}
             </Suspense>
           ) : (
             <>

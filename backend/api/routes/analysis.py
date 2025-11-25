@@ -5,7 +5,7 @@ Analysis API routes with background task support and WebSocket.
 import uuid
 import asyncio
 import json
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, WebSocket, WebSocketDisconnect
@@ -27,6 +27,10 @@ router = APIRouter()
 
 # In-memory storage for WebSocket connections (session_id -> [websockets])
 _websocket_connections: Dict[str, list] = {}
+
+# Event buffer for sessions without active WebSocket connections
+# Format: {session_id: [event1, event2, ...]}
+_websocket_event_buffer: Dict[str, List[Dict[str, Any]]] = {}
 
 
 def get_db() -> DatabaseManager:
@@ -127,32 +131,8 @@ async def run_analysis(
             'message': 'Executing analytical agents'
         })
         
-        # Emit agent_started events for each agent that will run
-        # Based on analysis_type, determine which agents will run
-        agent_types_map = {
-            'comprehensive': ['revenue', 'product', 'support'],
-            'mrr_only': ['revenue'],
-            'churn_only': ['revenue'],
-            'arpu_only': ['revenue'],
-            'product_only': ['product'],
-            'support_only': ['support'],
-        }
-        agents_to_run = agent_types_map.get(analysis_type_str, ['revenue', 'product', 'support'])
-        
-        for agent_type in agents_to_run:
-            await emit_websocket_event(session_id, {
-                'type': 'agent_started',
-                'session_id': session_id,
-                'agent': agent_type,
-                'progress': 10,
-                'message': f'{agent_type.capitalize()} agent started',
-                'timestamp': datetime.utcnow().isoformat()
-            })
-        
-        # Run analysis (orchestrator determines agent types internally based on analysis_type)
-        # Pass the session_id to orchestrator so it uses the same session for WebSocket events
-        # Note: Progress updates during analysis would require modifying orchestrator to emit events
-        # For now, we emit updates at key milestones
+        # Run analysis - orchestrator will emit real-time events as agents execute
+        # No need to emit agent_started/completed here - orchestrator handles it
         result = await orchestrator.analyze_week(
             week_number=week_number,
             analysis_type=analysis_type_str,
@@ -164,14 +144,14 @@ async def run_analysis(
         db_manager.update_session_status(
             session_id=session_id,
             status='running',
-            progress=90,
-            current_step='Processing results'
+            progress=95,
+            current_step='Finalizing results'
         )
         await emit_websocket_event(session_id, {
             'type': 'progress_update',
             'session_id': session_id,
-            'progress': 90,
-            'message': 'Processing results'
+            'progress': 95,
+            'message': 'Finalizing results'
         })
         
         # Parse report if it's a string
@@ -183,72 +163,9 @@ async def run_analysis(
             except (json.JSONDecodeError, TypeError):
                 report_data = {'text': report_data}
         
-        # Emit agent_completed events for each agent that was executed
-        # Extract confidence scores and insights from analytical_results metadata
-        analytical_results = result.metadata.get('analytical_results', {})
-        
-        for agent_type in result.agents_executed:
-            # Get confidence score from analytical_results (0-1 range)
-            agent_result = analytical_results.get(agent_type, {})
-            confidence_score = agent_result.get('confidence_score', 0.85)
-            
-            # Extract key insights from agent response
-            key_insights = []
-            try:
-                agent_response = agent_result.get('response', '{}')
-                if isinstance(agent_response, str):
-                    import json
-                    response_data = json.loads(agent_response)
-                else:
-                    response_data = agent_response
-                
-                # Extract insights from analysis (structure varies by agent)
-                analysis = response_data.get('analysis', {})
-                if isinstance(analysis, dict):
-                    key_insights = analysis.get('key_insights', [])
-                    if not key_insights:
-                        # Try direct access if analysis is nested differently
-                        key_insights = response_data.get('key_insights', [])
-            except (json.JSONDecodeError, TypeError, AttributeError) as e:
-                logger.debug(f"Could not extract insights for {agent_type}: {e}")
-                key_insights = []
-            
-            # Send agent_started event first
-            await emit_websocket_event(session_id, {
-                'type': 'agent_started',
-                'session_id': session_id,
-                'agent': agent_type,
-                'progress': 10,
-                'message': f'Analyzing {agent_type} data...',
-                'timestamp': datetime.utcnow().isoformat()
-            })
-            
-            # Send key insights as progress updates
-            for insight in key_insights[:3]:  # Send top 3 insights
-                await emit_websocket_event(session_id, {
-                    'type': 'progress_update',
-                    'session_id': session_id,
-                    'agent': agent_type,
-                    'progress': 50,
-                    'message': insight if isinstance(insight, str) else insight.get('description', str(insight)),
-                    'timestamp': datetime.utcnow().isoformat()
-                })
-            
-            # Send completion event
-            await emit_websocket_event(session_id, {
-                'type': 'agent_completed',
-                'session_id': session_id,
-                'agent': agent_type,
-                'progress': 90,
-                'message': f'{agent_type.capitalize()} agent completed',
-                'data': {
-                    'confidence': confidence_score  # Send as decimal (0-1)
-                },
-                'timestamp': datetime.utcnow().isoformat()
-            })
-        
-        # Note: Synthesizer, Governance, and Evaluation events are now emitted
-        # directly by the orchestrator during execution via the event_emitter callback
+        # Note: All agent events (started/completed) are now emitted in REAL-TIME
+        # by the orchestrator during execution via the event_emitter callback.
+        # No need to emit them again here - they've already been sent as agents executed.
         
         # Save analysis result to database
         db_manager.save_analysis_result(
@@ -320,24 +237,41 @@ async def run_analysis(
 
 
 async def emit_websocket_event(session_id: str, event: Dict[str, Any]):
-    """Emit WebSocket event to all connected clients for a session."""
+    """Emit WebSocket event to all connected clients for a session.
+    
+    If no WebSocket connections exist, buffer the event for later delivery.
+    """
+    # Serialize event data to ensure datetime objects are converted
+    serialized_event = serialize_for_json(event)
+    
     if session_id in _websocket_connections and len(_websocket_connections[session_id]) > 0:
         disconnected = []
-        # Serialize event data to ensure datetime objects are converted
-        serialized_event = serialize_for_json(event)
-        logger.debug(f"Emitting WebSocket event for session {session_id}: {event.get('type')} (progress: {event.get('progress')})")
+        logger.info(f"📤 Sending WebSocket event for session {session_id}: type={event.get('type')}, agent={event.get('agent')}, progress={event.get('progress')}")
         for websocket in _websocket_connections[session_id]:
             try:
                 await websocket.send_json(serialized_event)
+                logger.debug(f"✅ WebSocket event sent successfully: {event.get('type')}")
             except Exception as e:
-                logger.warning(f"Error sending WebSocket event: {e}")
+                logger.warning(f"❌ Error sending WebSocket event: {e}")
                 disconnected.append(websocket)
         
         # Remove disconnected websockets
         for ws in disconnected:
             _websocket_connections[session_id].remove(ws)
     else:
-        logger.debug(f"No WebSocket connections for session {session_id}, event not sent: {event.get('type')} (progress: {event.get('progress')})")
+        # Buffer event for later delivery when WebSocket connects
+        # Limit buffer size to prevent memory issues (keep last 100 events)
+        if session_id not in _websocket_event_buffer:
+            _websocket_event_buffer[session_id] = []
+        
+        _websocket_event_buffer[session_id].append(serialized_event)
+        
+        # Limit buffer to last 100 events
+        if len(_websocket_event_buffer[session_id]) > 100:
+            _websocket_event_buffer[session_id] = _websocket_event_buffer[session_id][-100:]
+            logger.warning(f"Event buffer for session {session_id} exceeded 100 events, keeping last 100")
+        
+        logger.warning(f"⚠️ NO WebSocket connection for session {session_id}! Event BUFFERED: type={event.get('type')}, agent={event.get('agent')}, progress={event.get('progress')}. Buffer size: {len(_websocket_event_buffer[session_id])}")
 
 
 @router.post("/trigger", response_model=AnalysisResponse)
@@ -368,17 +302,22 @@ async def trigger_analysis(
             analysis_type=request.analysis_type
         )
         
-        # Queue analysis in background
-        background_tasks.add_task(
-            run_analysis,
-            session_id=session_id,
-            week_number=request.week_number,
-            analysis_type=request.analysis_type,
-            user_id=request.user_id,
-            agent_types=request.agent_types,
-            cache_manager=cache_manager,
-            db_manager=db_manager
-        )
+        # Queue analysis in background with a small delay to allow WebSocket to connect
+        # This ensures real-time updates are sent over WebSocket, not just buffered
+        async def delayed_run_analysis():
+            # Wait 200ms for WebSocket to connect before starting analysis
+            await asyncio.sleep(0.2)
+            await run_analysis(
+                session_id=session_id,
+                week_number=request.week_number,
+                analysis_type=request.analysis_type,
+                user_id=request.user_id,
+                agent_types=request.agent_types,
+                cache_manager=cache_manager,
+                db_manager=db_manager
+            )
+        
+        background_tasks.add_task(delayed_run_analysis)
         
         return AnalysisResponse(
             session_id=session_id,
@@ -506,13 +445,32 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     Clients can subscribe to session-specific updates.
     """
     await websocket.accept()
-    logger.info(f"WebSocket connection established for session {session_id}")
+    logger.info(f"✅ WebSocket connection ACCEPTED for session {session_id}")
     
-    # Add to connections
+    # Add to connections IMMEDIATELY so events are sent in real-time
     if session_id not in _websocket_connections:
         _websocket_connections[session_id] = []
     _websocket_connections[session_id].append(websocket)
-    logger.info(f"WebSocket added to connections. Total connections for {session_id}: {len(_websocket_connections[session_id])}")
+    logger.info(f"✅ WebSocket REGISTERED. Total connections for {session_id}: {len(_websocket_connections[session_id])}")
+    
+    # Check if there are buffered events and send them
+    if session_id in _websocket_event_buffer and len(_websocket_event_buffer[session_id]) > 0:
+        logger.warning(f"⚠️ Found {len(_websocket_event_buffer[session_id])} buffered events - WebSocket connected AFTER analysis started!")
+    
+    # Send any buffered events immediately
+    if session_id in _websocket_event_buffer and len(_websocket_event_buffer[session_id]) > 0:
+        buffered_events = _websocket_event_buffer[session_id]
+        logger.info(f"Sending {len(buffered_events)} buffered events to WebSocket for session {session_id}")
+        for idx, buffered_event in enumerate(buffered_events):
+            try:
+                logger.debug(f"Sending buffered event {idx+1}/{len(buffered_events)}: type={buffered_event.get('type')}, agent={buffered_event.get('agent')}, progress={buffered_event.get('progress')}")
+                await websocket.send_json(buffered_event)
+                # Small delay between events to ensure they're processed separately
+                await asyncio.sleep(0.01)  # 10ms delay
+            except Exception as e:
+                logger.warning(f"Error sending buffered event {idx+1}: {e}")
+        # Clear buffer after sending
+        del _websocket_event_buffer[session_id]
     
     try:
         # Get database manager

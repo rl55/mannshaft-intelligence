@@ -454,7 +454,8 @@ revenue_agent.receive(message)
 ```
 
 ### Context Engineering & Memory
-SQLite-based Memory Bank for session history, preferences, and context
+SQLite-based Memory Bank for session history, preferences, and context.
+
 **Session Memory (Short-Term):**
 - Each analysis session maintains state across agent calls
 - Context window: 32K tokens with intelligent compaction
