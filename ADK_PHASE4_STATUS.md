@@ -18,29 +18,24 @@
 - **Implementation**: ADK `LlmAgent` handles Gemini API calls internally
 - **No Action Needed**: Agents don't use `GeminiClient` directly - ADK manages LLM calls
 
-## ⏳ In Progress / Pending
+## ✅ Completed
 
-### 3. ADK Context Caching
-- **Current State**: Using custom `CacheManager` for prompt and agent response caching
-- **ADK Option**: ADK provides context caching via `SessionService` and context management
-- **Decision Needed**: 
-  - Keep custom caching (more control, existing implementation)
-  - Migrate to ADK context caching (better integration, less control)
-  - Hybrid approach (use ADK for session context, keep custom for prompt/agent caching)
+### 3. ADK Context Caching ✅
+- **Status**: Migrated to ADK context caching
+- **Implementation**: 
+  - Created `backend/adk_app.py` with `App` and `ContextCacheConfig`
+  - Context caching enabled with default settings (cache_intervals=10, ttl=1800s)
+  - Provides built-in context compression for better performance
+- **Note**: Context caching is experimental but provides compression out of the box
 
-### 4. ADK API Server Integration
-- **Current State**: Custom FastAPI application with routes for:
-  - Analysis triggering (`/api/v1/analysis/trigger`)
-  - WebSocket real-time updates (`/api/v1/analysis/{session_id}/ws`)
-  - Session management (`/api/v1/sessions`)
-  - Cache monitoring (`/api/v1/cache`)
-  - Monitoring (`/api/v1/monitoring`)
-  - HITL (`/api/v1/hitl`)
-- **ADK Option**: ADK provides `adk api_server` command for running agents
-- **Decision Needed**:
-  - Keep custom FastAPI (more control, existing WebSocket implementation)
-  - Migrate to ADK API Server (standardized, may need to adapt WebSocket)
-  - Hybrid approach (use ADK API Server for agent execution, keep custom routes for monitoring/HITL)
+### 4. ADK API Server Integration ✅
+- **Status**: Integrated ADK API Server with custom routes
+- **Implementation**:
+  - Created `backend/adk_api_main.py` that combines ADK API Server with custom routes
+  - ADK routes mounted at `/adk` prefix
+  - Custom routes maintained at `/api/v1/*` for compatibility
+  - Custom routes: sessions, cache, monitoring, HITL
+- **Architecture**: Hybrid approach - ADK handles agent execution, custom routes handle monitoring/HITL
 
 ## Architecture Notes
 
