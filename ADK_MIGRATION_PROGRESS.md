@@ -1,6 +1,6 @@
 # ADK Migration Progress
 
-## Status: Phase 2 In Progress
+## Status: Phase 3 In Progress
 
 ### ✅ Completed
 
@@ -9,47 +9,39 @@
 - [x] Requirements.txt updated
 - [x] Migration decisions documented
 
-**Phase 2: Core Infrastructure** (In Progress)
+**Phase 2: Core Infrastructure**
 - [x] ADK SessionService setup (`adk_setup.py`)
-- [ ] Fix SQLite path for DatabaseSessionService
-- [ ] Configure ADK context caching
-- [ ] Set up ADK API Server
-- [ ] Configure ADK bidi-streaming
+- [x] Architecture confirmed: Option A (Nested - ParallelAgent as sub-agent)
 
-### ⏳ Pending Decisions
+**Phase 3: Agent Migration** (In Progress)
+- [x] RevenueAgent created as ADK LlmAgent
+- [ ] ProductAgent - ADK LlmAgent
+- [ ] SupportAgent - ADK LlmAgent
+- [ ] ParallelAgent coordinator for analytical agents
+- [ ] SynthesizerAgent - ADK LlmAgent with tools
+- [ ] GovernanceAgent - ADK Custom Agent
+- [ ] EvaluationAgent - ADK Custom Agent
+- [ ] SequentialAgent orchestrator
 
-**Architecture Clarification Needed:**
+### 📋 Architecture Confirmed
 
-Based on your decision #2, I need to confirm the exact structure:
-
-**Option A: Nested Structure**
 ```
-SequentialAgent (Main Orchestrator)
-└── ParallelAgent (Analytical Coordinator)
-    ├── RevenueAgent (LlmAgent)
-    ├── ProductAgent (LlmAgent)
-    └── SupportAgent (LlmAgent)
-└── SynthesizerAgent (LlmAgent)
-└── GovernanceAgent (Custom)
-└── EvaluationAgent (Custom)
+SequentialAgent (Main Orchestrator - end-to-end responsibility)
+│
+├── ParallelAgent (Sub-agent/Coordinator for analytical agents)
+│   ├── RevenueAgent (LlmAgent) ✅
+│   ├── ProductAgent (LlmAgent) ⏳
+│   └── SupportAgent (LlmAgent) ⏳
+│
+├── SynthesizerAgent (LlmAgent with tool calling) ⏳
+│
+├── GovernanceAgent (Custom Agent) ⏳
+│
+└── EvaluationAgent (Custom Agent) ⏳
 ```
-
-**Option B: Flat Structure**
-```
-SequentialAgent (Main Orchestrator)
-├── RevenueAgent (LlmAgent) [parallel]
-├── ProductAgent (LlmAgent) [parallel]
-├── SupportAgent (LlmAgent) [parallel]
-├── SynthesizerAgent (LlmAgent)
-├── GovernanceAgent (Custom)
-└── EvaluationAgent (Custom)
-```
-
-**Question**: Should the ParallelAgent be a separate coordinator agent (Option A), or should SequentialAgent directly contain the three analytical agents configured to run in parallel (Option B)?
 
 ### 📝 Notes
 
-- SQLite path issue: DatabaseSessionService needs absolute path or proper SQLite URL format
-- Runner requires agent/app to be created - will be addressed in Phase 3
-- Context caching will be configured via plugins as per ADK documentation
-
+- Revenue Agent successfully created using ADK LlmAgent
+- FunctionTool wrapper created for Google Sheets (will migrate to MCP tools)
+- Next: Create Product and Support agents, then ParallelAgent coordinator
