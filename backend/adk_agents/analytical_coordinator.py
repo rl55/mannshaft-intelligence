@@ -10,7 +10,7 @@ This ParallelAgent runs the three analytical agents concurrently:
 All three agents execute in parallel for optimal performance.
 """
 
-from google.adk.agents.workflow_agents import ParallelAgent
+from google.adk.agents import ParallelAgent
 from adk_agents.revenue_agent import create_revenue_agent
 from adk_agents.product_agent import create_product_agent
 from adk_agents.support_agent import create_support_agent
@@ -43,8 +43,9 @@ def create_analytical_coordinator() -> ParallelAgent:
     # Create ParallelAgent coordinator
     coordinator = ParallelAgent(
         name="analytical_coordinator",
-        agents=[revenue_agent, product_agent, support_agent],
-        # ParallelAgent will execute all agents concurrently
+        description="Coordinates parallel execution of Revenue, Product, and Support analytical agents",
+        sub_agents=[revenue_agent, product_agent, support_agent],
+        # ParallelAgent will execute all sub_agents concurrently
         # Results will be aggregated and passed to the next agent in the SequentialAgent workflow
     )
     
