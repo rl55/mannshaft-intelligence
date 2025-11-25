@@ -16,13 +16,18 @@ INFO:     "WebSocket /api/v1/analysis/{session_id}/ws" 403
 
 ## Running the Server
 
-### ✅ Recommended: Use Unified App
+### ✅ Recommended: Use Unified App (with venv activated)
 ```bash
 cd backend
+source venv/bin/activate  # IMPORTANT: Activate venv first!
 python adk_unified_main.py
-# OR
+# OR use the convenience script:
+./run_adk_server.sh
+# OR with uvicorn (venv must be activated):
 uvicorn adk_unified_main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+**Important:** Always activate the venv first! ADK is installed in the venv, not system Python.
 
 ### ⚠️ Alternative: Use Original FastAPI App (temporary)
 If you need to use the original app while migrating:
