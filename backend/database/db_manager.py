@@ -269,7 +269,20 @@ class DatabaseManager:
         now = datetime.utcnow()
         report_json = json.dumps(report) if isinstance(report, dict) else report
         agents_json = json.dumps(agents_executed)
-        metadata_json = json.dumps(metadata) if metadata else None
+        
+        # Convert datetime objects to ISO format strings for JSON serialization
+        def convert_datetime_to_iso(obj):
+            """Recursively convert datetime objects to ISO format strings."""
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            elif isinstance(obj, dict):
+                return {key: convert_datetime_to_iso(value) for key, value in obj.items()}
+            elif isinstance(obj, list):
+                return [convert_datetime_to_iso(item) for item in obj]
+            else:
+                return obj
+        
+        metadata_json = json.dumps(convert_datetime_to_iso(metadata)) if metadata else None
         
         with self._get_connection() as conn:
             cursor = conn.cursor()

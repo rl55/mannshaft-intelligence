@@ -147,7 +147,8 @@ def create_product_agent() -> LlmAgent:
         Configured LlmAgent instance ready for use in agent registry or as a tool
     """
     model_name = config.get('gemini.model', 'gemini-2.5-flash-lite')
-    
+    model_config = config.get_model_config_with_retries()
+
     instruction = """You are a Product Analysis Agent specializing in comprehensive SaaS product metrics and user engagement analysis.
 
 **CORE RESPONSIBILITIES:**
@@ -310,6 +311,7 @@ Return a structured JSON object with the following schema:
         model=model_name,
         instruction=instruction,
         tools=[product_data_tool, statistical_analysis_tool],
+        **model_config  # Include HTTP retry options for transient errors (503, 429, etc.)
     )
     
     logger.info("ADK Product Agent created with full feature set")

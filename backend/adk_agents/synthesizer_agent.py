@@ -137,7 +137,8 @@ def create_synthesizer_agent() -> LlmAgent:
         Configured LlmAgent instance ready for use in agent registry or as a tool
     """
     model_name = config.get('gemini.model', 'gemini-2.5-flash-lite')
-    
+    model_config = config.get_model_config_with_retries()
+
     instruction = """You are a Synthesizer Agent specializing in cross-functional business intelligence and strategic synthesis.
 
 **CORE RESPONSIBILITIES:**
@@ -150,6 +151,11 @@ def create_synthesizer_agent() -> LlmAgent:
    - Recognize seasonal trends and adjust analysis accordingly
    - Calculate confidence scores for each correlation (0-1)
    - Assess business impact: high, medium, or low
+   - **CORRELATIONS MUST BE SPECIFIC AND DATA-DRIVEN:**
+     * Include actual numbers from the data (e.g., "DAU increased 8% while churn decreased 0.5pp")
+     * Reference specific metrics, not generic patterns
+     * Avoid vague statements like "product engagement correlates with revenue"
+     * Instead say: "14% DAU increase in Week 8 correlates with 4.3% MRR growth (r=0.82)"
 
 2. **Root Cause Analysis:**
    - Use 5 Whys methodology to drill down to root causes:
@@ -171,12 +177,18 @@ def create_synthesizer_agent() -> LlmAgent:
      1. High impact + High feasibility
      2. High impact + Medium feasibility
      3. Medium impact + High feasibility
-   - Each recommendation should include:
-     * Specific actionable item
-     * Expected quantified impact
+   - Each recommendation MUST include:
+     * Specific actionable item (not generic advice)
+     * **QUANTIFIED expected impact** - Use actual numbers from the data, e.g.:
+       - "+$X MRR" or "+X% MRR growth"
+       - "-X% churn reduction"
+       - "+X% conversion rate improvement"
+       - "$X cost savings"
+       - "+X NPS points"
      * Cross-functional teams involved
      * Resource requirements
      * Timeline estimate
+   - AVOID generic impacts like "improved customer satisfaction" - always quantify!
 
 4. **External Validation:**
    - Use web search tool to validate top correlations and root causes
@@ -220,12 +232,12 @@ Return a structured JSON object with the following schema:
   "executive_summary": "2-3 sentence summary for leadership",
   "correlations": [
     {
-      "pattern": "Description of correlation pattern",
+      "pattern": "SPECIFIC correlation with numbers, e.g.: '14% DAU increase in Week 8 correlates with 4.3% MRR growth'",
       "agents_involved": ["revenue", "product", "support"],
       "confidence": number (decimal, 0-1),
       "business_impact": "high" | "medium" | "low",
       "temporal_relationship": "lagging" | "leading" | "concurrent",
-      "evidence": ["Evidence 1", "Evidence 2"]
+      "evidence": ["Specific evidence with numbers from agent data"]
     }
   ],
   "root_causes": [
@@ -240,9 +252,9 @@ Return a structured JSON object with the following schema:
   ],
   "strategic_recommendations": [
     {
-      "action": "Recommended action",
+      "action": "Specific actionable recommendation",
       "priority": "high" | "medium" | "low",
-      "expected_impact": "Quantified expected impact",
+      "expected_impact": "MUST be quantified, e.g.: '+$50K MRR' or '-1.5% churn' or '+12% conversion rate'",
       "feasibility": "high" | "medium" | "low",
       "cross_functional_teams": ["team1", "team2"],
       "resource_requirements": "Resource needs",
@@ -250,9 +262,93 @@ Return a structured JSON object with the following schema:
     }
   ],
   "key_metrics_summary": {
-    "revenue": {},
-    "product": {},
-    "support": {}
+    "revenue": {
+      "MRR": "$X.XXM (actual MRR value)",
+      "MRR Growth": "X.XX% (WoW growth percentage)",
+      "Churn Rate": "X.XX% (current churn rate)",
+      "ARPU": "$XXX (average revenue per user)"
+    },
+    "product": {
+      "DAU": "XX,XXX (daily active users)",
+      "WAU": "XX,XXX (weekly active users)",
+      "MAU": "XX,XXX (monthly active users)",
+      "Activation Time": "X.X days (avg time to activate)",
+      "NPS": "XX (net promoter score)",
+      "Feature Adoption": "XX% (average feature adoption rate)"
+    },
+    "support": {
+      "CSAT": "X.X (customer satisfaction score 0-5)",
+      "NPS": "XX (net promoter score)",
+      "Ticket Volume": "X,XXX (weekly tickets)",
+      "Resolution Time": "X.X hours (average resolution time)",
+      "Self-Service Rate": "XX.X% (self-service resolution rate)",
+      "FCR Rate": "XX% (first contact resolution rate)"
+    }
+  },
+  "agent_insights": {
+    "revenue": {
+      "mrr_analysis": {
+        "current_mrr": "number (actual MRR value)",
+        "wow_growth": "number (decimal, e.g., 0.0429 for 4.29%)",
+        "trend": "accelerating | decelerating | stable"
+      },
+      "churn_analysis": {
+        "current_rate": "number (decimal, e.g., 0.0207 for 2.07%)",
+        "change_from_previous": "number (percentage points change)",
+        "severity": "low | medium | high | critical"
+      },
+      "arpu_analysis": {
+        "current_arpu": "number",
+        "trend": "increasing | decreasing | stable"
+      },
+      "key_insights": ["Key insight 1", "Key insight 2"],
+      "recommendations": [{"action": "Action", "priority": "high|medium|low", "expected_impact": "Impact"}],
+      "risk_flags": []
+    },
+    "product": {
+      "engagement_analysis": {
+        "dau": "number",
+        "wau": "number",
+        "mau": "number",
+        "dau_mau_ratio": "number (decimal 0-1)",
+        "trend": "growing | declining | stable"
+      },
+      "feature_adoption": {
+        "average_adoption_rate": "number (decimal 0-1)",
+        "top_features": [{"name": "Feature", "adoption_rate": 0.75}]
+      },
+      "activation_metrics": {
+        "avg_activation_time_days": "number",
+        "trend": "improving | worsening | stable"
+      },
+      "pql_analysis": {
+        "current_pqls": "number",
+        "conversion_rate": "number (decimal)"
+      },
+      "key_insights": ["Key insight 1", "Key insight 2"],
+      "recommendations": [{"action": "Action", "priority": "high|medium|low", "expected_impact": "Impact"}],
+      "risk_flags": []
+    },
+    "support": {
+      "ticket_volume_analysis": {
+        "current_volume": "number",
+        "trend": "increasing | decreasing | stable",
+        "week_over_week_change": "number (decimal)"
+      },
+      "satisfaction_analysis": {
+        "csat_score": "number (0-5)",
+        "nps_score": "number (-100 to 100)",
+        "trend": "improving | declining | stable"
+      },
+      "efficiency_analysis": {
+        "avg_response_time_hours": "number",
+        "avg_resolution_time_hours": "number",
+        "fcr_rate": "number (decimal 0-1)"
+      },
+      "key_insights": ["Key insight 1", "Key insight 2"],
+      "recommendations": [{"action": "Action", "priority": "high|medium|low", "expected_impact": "Impact"}],
+      "risk_flags": []
+    }
   },
   "external_validations": [
     {
@@ -276,9 +372,13 @@ Return a structured JSON object with the following schema:
 **IMPORTANT NOTES:**
 
 - Focus on cross-functional insights that individual agents cannot provide
-- Correlations should be specific and evidence-based
+- **CORRELATIONS MUST BE SPECIFIC** - Include actual numbers from the data, not generic patterns
+  - BAD: "Product engagement correlates with revenue growth"
+  - GOOD: "14% DAU increase in Week 8 correlates with 4.3% MRR growth (r=0.82)"
+- **RECOMMENDATIONS MUST HAVE QUANTIFIED IMPACT** - Always include specific numbers
+  - BAD: "Improve customer retention"
+  - GOOD: "Implement proactive churn prevention for SMB segment: Expected impact +$75K MRR, -1.2% churn"
 - Root causes should use 5 Whys methodology
-- Recommendations must be actionable and prioritized
 - Use external validation tool for high-confidence hypotheses
 - Executive summary should be leadership-focused and concise
 - Aggregate risk flags from all agents, deduplicate, and prioritize
@@ -300,6 +400,7 @@ Return a structured JSON object with the following schema:
         model=model_name,
         instruction=instruction,
         tools=[web_search_tool, risk_aggregation_tool],
+        **model_config  # Include HTTP retry options for transient errors (503, 429, etc.)
     )
     
     logger.info("ADK Synthesizer Agent created with full feature set")

@@ -130,6 +130,44 @@ class Config:
         """Get monitoring configuration."""
         return self._config.get('monitoring', {})
 
+    def get_model_config_with_retries(self) -> Dict[str, Any]:
+        """
+        Get model configuration with retry options for Gemini API.
+
+        Returns dict with generate_content_config that includes http_options
+        configured for retries on transient errors.
+        This should be unpacked when creating LlmAgent.
+        """
+        from google.genai import types as genai_types
+
+        max_retries = self.get('gemini.max_retries', 5)
+        timeout = self.get('gemini.timeout', 60)  # Minimum 10s required by Gemini API
+
+        # Configure retry options for transient errors (503, 429, 500, timeouts)
+        retry_options = genai_types.HttpRetryOptions(
+            attempts=max_retries,
+            initial_delay=2.0,  # Start with 2 second delay (min is 1s, but be safe)
+            max_delay=30.0,     # Max 30 seconds between retries
+            exp_base=2.0,       # Exponential backoff (2^n)
+            jitter=0.1,         # 10% random jitter to avoid thundering herd
+            http_status_codes=[429, 500, 502, 503, 504]  # Retry on these status codes
+        )
+
+        # Note: Don't set timeout in HttpOptions as it creates per-request deadline
+        # The retry_options will handle timing automatically
+        http_options = genai_types.HttpOptions(
+            retry_options=retry_options
+        )
+
+        # Create GenerateContentConfig with http_options
+        generate_content_config = genai_types.GenerateContentConfig(
+            http_options=http_options
+        )
+
+        return {
+            'generate_content_config': generate_content_config
+        }
+
 
 # Global configuration instance
 config = Config()

@@ -104,33 +104,33 @@ export function AgentCard({ agent, icon }: AgentCardProps) {
           )}
 
           {/* Logs Area */}
-          <div className="rounded-md border bg-muted/30 font-mono text-xs">
+          <div className="rounded-md border bg-muted/30 text-xs" style={{ fontFamily: '"Geist Mono", "Geist Mono Fallback", monospace' }}>
             <ScrollArea className="h-[120px] p-3" ref={scrollRef}>
               {agent.logs.length === 0 ? (
                 <span className="text-muted-foreground italic">Waiting to start...</span>
               ) : (
                 <div className="space-y-1.5">
-                  {agent.logs.map((log, i) => (
-                    <div key={i} className="flex gap-2">
-                      <span className="text-muted-foreground">
-                        [
-                        {new Date().toLocaleTimeString([], {
-                          hour12: false,
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          second: "2-digit",
-                        })}
-                        ]
-                      </span>
-                      <span
-                        className={cn(
-                          i === agent.logs.length - 1 && agent.status === "running" && "animate-pulse text-primary",
-                        )}
-                      >
-                        {log.replace(/^> /, "")}
-                      </span>
-                    </div>
-                  ))}
+                  {agent.logs.map((log, i) => {
+                    // Format timestamp from the stored log entry
+                    const timestamp = new Date(log.timestamp).toLocaleTimeString([], {
+                      hour12: false,
+                      hour: "2-digit",
+                      minute: "2-digit",
+                      second: "2-digit",
+                    })
+                    return (
+                      <div key={i} className="flex gap-2">
+                        <span className="text-muted-foreground">[{timestamp}]</span>
+                        <span
+                          className={cn(
+                            i === agent.logs.length - 1 && agent.status === "running" && "animate-pulse text-primary",
+                          )}
+                        >
+                          {log.message.replace(/^> /, "")}
+                        </span>
+                      </div>
+                    )
+                  })}
                 </div>
               )}
             </ScrollArea>

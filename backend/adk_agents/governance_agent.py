@@ -11,8 +11,10 @@ This agent provides:
 """
 
 from typing import Dict, Any, Optional, AsyncGenerator
+import json
 from google.adk.agents.base_agent import BaseAgent
 from google.adk.events import Event
+from google.genai import types as genai_types
 from utils.logger import logger
 
 # Import existing governance logic
@@ -82,20 +84,50 @@ class GovernanceAgent(BaseAgent):
             
             # Try to get synthesized response from context
             # ADK context typically has messages from previous agents
+            # With LoopAgent (Synthesizer + Evaluation), we need to search for synthesizer output
             if hasattr(parent_context, 'messages') and parent_context.messages:
-                # Get the last message which should be from SynthesizerAgent
-                last_message = parent_context.messages[-1]
-                if hasattr(last_message, 'content'):
-                    # Parse content - could be JSON string or dict
-                    import json
-                    content = last_message.content
+                # Search through messages for synthesizer output
+                # Start from the end (most recent) and look backwards
+                for message in reversed(parent_context.messages):
+                    if not hasattr(message, 'content'):
+                        continue
+                    
+                    content = message.content
+                    content_str = None
+                    
+                    # Extract string content
                     if isinstance(content, str):
-                        try:
-                            synthesized_response = json.loads(content)
-                        except json.JSONDecodeError:
-                            synthesized_response = {"raw_content": content}
+                        content_str = content
+                    elif hasattr(content, 'parts') and content.parts:
+                        text_parts = [p.text for p in content.parts if hasattr(p, 'text') and p.text]
+                        if text_parts:
+                            content_str = text_parts[0]
                     elif isinstance(content, dict):
                         synthesized_response = content
+                        self.logger.info("Found synthesized response as dict in context")
+                        break
+                    
+                    if content_str:
+                        # Check if this looks like a synthesizer output (has executive_summary or report)
+                        try:
+                            parsed = json.loads(content_str)
+                            if isinstance(parsed, dict):
+                                # Check for synthesizer output markers
+                                if any(key in parsed for key in ['executive_summary', 'report', 'summary', 'cross_functional_insights']):
+                                    synthesized_response = parsed
+                                    self.logger.info("Found synthesized response in context messages")
+                                    break
+                                # Also accept raw text that looks like a report
+                                elif 'Executive Summary' in content_str:
+                                    synthesized_response = {"raw_content": content_str, "executive_summary": content_str}
+                                    self.logger.info("Found synthesized response as text in context")
+                                    break
+                        except json.JSONDecodeError:
+                            # Not JSON - check if it's a text report
+                            if 'Executive Summary' in content_str or 'Analysis Results' in content_str:
+                                synthesized_response = {"raw_content": content_str, "executive_summary": content_str}
+                                self.logger.info("Found synthesized response as raw text in context")
+                                break
             
             # Fallback: try to get from context attributes
             if not synthesized_response:
@@ -147,10 +179,17 @@ class GovernanceAgent(BaseAgent):
                 "hitl_request_id": result.hitl_request_id
             }
             
+            # ADK Event.content must be a google.genai.types.Content object
+            # Convert dict to JSON string and wrap in Content
+            content_obj = genai_types.Content(
+                parts=[genai_types.Part(text=json.dumps(event_content))],
+                role="assistant"
+            )
+            
             # Yield event
             event = Event(
                 author=self.name,
-                content=event_content
+                content=content_obj
             )
             
             yield event
@@ -158,13 +197,19 @@ class GovernanceAgent(BaseAgent):
         except Exception as e:
             self.logger.error(f"Error in Governance Agent: {e}", exc_info=True)
             # Yield error event
+            # ADK Event.content must be a google.genai.types.Content object
+            error_content = {
+                "error": str(e),
+                "validation_passed": False,
+                "action": "error"
+            }
+            content_obj = genai_types.Content(
+                parts=[genai_types.Part(text=json.dumps(error_content))],
+                role="assistant"
+            )
             error_event = Event(
                 author=self.name,
-                content={
-                    "error": str(e),
-                    "validation_passed": False,
-                    "action": "error"
-                }
+                content=content_obj
             )
             yield error_event
 

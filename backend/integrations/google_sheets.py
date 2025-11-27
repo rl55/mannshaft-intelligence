@@ -185,8 +185,9 @@ class GoogleSheetsIntegration:
             conn = self.cache_manager.connect()
             cursor = conn.cursor()
             
+            # Use existing schema columns (response contains both data and checksum as JSON)
             cursor.execute("""
-                SELECT response, metadata FROM agent_responses
+                SELECT response FROM agent_responses
                 WHERE agent_type = 'google_sheets' 
                 AND request_params = ?
                 AND datetime(last_accessed, '+' || ttl_hours || ' hours') > datetime('now')
@@ -195,9 +196,15 @@ class GoogleSheetsIntegration:
             row = cursor.fetchone()
             if row:
                 try:
-                    data = json.loads(row['response'])
-                    metadata = json.loads(row['metadata']) if row['metadata'] else {}
-                    checksum = metadata.get('checksum', '')
+                    # Response is stored as JSON with both data and checksum
+                    cached = json.loads(row['response'])
+                    if isinstance(cached, dict) and 'data' in cached:
+                        data = cached['data']
+                        checksum = cached.get('checksum', '')
+                    else:
+                        # Legacy format - response is just the data
+                        data = cached
+                        checksum = ''
                     
                     # Update last accessed
                     cursor.execute("""
@@ -207,6 +214,7 @@ class GoogleSheetsIntegration:
                     """, (json.dumps({'cache_key': cache_key}),))
                     conn.commit()
                     
+                    self.logger.info(f"Cache hit for {cache_key}")
                     return data, checksum
                 except json.JSONDecodeError:
                     return None
@@ -223,8 +231,9 @@ class GoogleSheetsIntegration:
     ):
         """Cache sheet data."""
         try:
-            data_json = json.dumps(data)
-            metadata = json.dumps({
+            # Store both data and checksum in response field as JSON
+            cache_payload = json.dumps({
+                'data': data,
                 'checksum': checksum,
                 'cached_at': datetime.utcnow().isoformat()
             })
@@ -233,11 +242,12 @@ class GoogleSheetsIntegration:
             self.cache_manager.cache_agent_response(
                 agent_type='google_sheets',
                 context={'cache_key': cache_key},
-                response=data_json,
+                response=cache_payload,
                 confidence_score=1.0,
                 execution_time_ms=0,
                 ttl_hours=self.cache_ttl_hours
             )
+            self.logger.info(f"Cached data for {cache_key}")
         except Exception as e:
             self.logger.warning(f"Error caching data: {e}")
     
@@ -367,22 +377,18 @@ class GoogleSheetsIntegration:
         """
         cache_key = f"{spreadsheet_id}:{sheet_name}:{range_name or 'all'}"
         
-        # Check cache
+        # Check cache first - if valid cached data exists, return it immediately
         if use_cache:
             cached = self._get_cached_data(cache_key)
             if cached:
-                data, old_checksum = cached
-                self.logger.info(f"Cache HIT for {cache_key}")
-                
-                # Check if data changed (quick check)
-                new_checksum = self._calculate_checksum(data)
-                if new_checksum == old_checksum:
-                    # Data unchanged, return cached
-                    freshness = self._get_data_freshness(spreadsheet_id)
-                    return data, freshness
+                data, checksum = cached
+                self.logger.info(f"Cache HIT for {cache_key} - returning cached data")
+                # Return cached data directly without re-fetching
+                freshness = self._get_data_freshness(spreadsheet_id)
+                return data, freshness
         
-        # Fetch fresh data
-        self.logger.info(f"Fetching fresh data for {cache_key}")
+        # No cache hit - fetch fresh data from Google Sheets
+        self.logger.info(f"Cache MISS for {cache_key} - fetching fresh data")
         data = await self._fetch_with_retry(spreadsheet_id, sheet_name, range_name)
         
         # Calculate checksum and cache

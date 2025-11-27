@@ -19,16 +19,26 @@ export interface AnalysisEvent {
   type:
     | "agent_started"
     | "agent_completed"
+    | "agent_progress"
     | "guardrail_check"
     | "evaluation_complete"
     | "progress_update"
     | "error"
+    | "analysis_failed"
+    | "warning"
+    | "retry"
     | "completed";
   progress: number;
   agent?: string;
   data?: any;
   timestamp?: number;
   message?: string;
+  status?: string;
+  is_transient?: boolean;
+  can_retry?: boolean;
+  error?: string;
+  retry_attempt?: number;
+  max_retries?: number;
 }
 
 interface UseAnalysisProgressOptions {
@@ -37,6 +47,7 @@ interface UseAnalysisProgressOptions {
   maxReconnectAttempts?: number;
   onComplete?: () => void;
   onError?: (error: Error) => void;
+  onAnalysisFailed?: (message: string, canRetry: boolean) => void; // Called when analysis fails
   waitForSession?: boolean; // Wait for session to exist before connecting
   initialDelay?: number; // Delay before first connection attempt
 }
@@ -51,6 +62,7 @@ export function useAnalysisProgress(
     maxReconnectAttempts = 5,
     onComplete,
     onError,
+    onAnalysisFailed,
     waitForSession = false, // Don't wait - connect immediately
     initialDelay = 0, // Connect IMMEDIATELY - no delay
   } = options;
@@ -60,6 +72,9 @@ export function useAnalysisProgress(
   const [isConnected, setIsConnected] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false); // Track connection attempt
+  const [analysisError, setAnalysisError] = useState<string | null>(null); // Analysis error message
+  const [canRetry, setCanRetry] = useState(false); // Whether user can retry
+  const [isRetrying, setIsRetrying] = useState(false); // Backend is retrying
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -140,18 +155,44 @@ export function useAnalysisProgress(
             return updated;
           });
           
-          // Handle completion - ensure progress is set to 100
-          if (data.type === "completed" || data.progress >= 100) {
+          // Handle different event types
+          if (data.type === "error" || data.type === "analysis_failed") {
+            // Analysis failed - show error to user
+            console.error("Analysis failed:", data.message, data.error);
+            setAnalysisError(data.message || "Analysis failed. Please try again.");
+            setCanRetry(data.can_retry || data.is_transient || false);
+            setIsRetrying(false);
+            setProgress(0); // Reset progress on failure
+            onAnalysisFailed?.(data.message || "Analysis failed", data.can_retry || false);
+          } else if (data.type === "warning") {
+            // Transient error - backend is retrying
+            console.warn("Analysis warning (retrying):", data.message);
+            setIsRetrying(true);
+            setAnalysisError(data.message || "Temporary issue, retrying...");
+            // Don't reset progress - backend is still trying
+          } else if (data.type === "retry") {
+            // Backend is retrying
+            console.log("Analysis retry:", data.message, `Attempt ${data.retry_attempt}/${data.max_retries}`);
+            setIsRetrying(true);
+            setAnalysisError(null); // Clear error since we're retrying
+          } else if (data.type === "completed" || (data.type === "progress_update" && data.progress >= 100)) {
+            // Handle completion - ensure progress is set to 100
             console.log("Analysis completed via WebSocket");
             setProgress(100); // Explicitly set to 100% on completion
+            setAnalysisError(null); // Clear any errors
+            setIsRetrying(false);
+            setCanRetry(false);
             // Call completion callback but keep connection open
-            // The UI will show "Completed" status instead of "Disconnected"
             onComplete?.();
-            // Don't close the connection immediately - let it stay open
-            // The connection will close naturally when component unmounts
-            // This way the UI can show "Completed" instead of "Disconnected"
-          } else {
+          } else if (data.type === "progress_update") {
+            // Only update overall progress from progress_update events
+            // Agent events (agent_progress, agent_completed) have agent-specific progress
             setProgress(data.progress || 0);
+            // Clear error state if we're making progress
+            if (data.progress > 0) {
+              setAnalysisError(null);
+              setIsRetrying(false);
+            }
           }
         } catch (error) {
           console.error("Failed to parse WebSocket message:", error, event.data);
@@ -361,14 +402,25 @@ export function useAnalysisProgress(
     setIsReconnecting(false);
   }, []);
 
+  // Function to clear error and allow retry
+  const clearError = useCallback(() => {
+    setAnalysisError(null);
+    setCanRetry(false);
+    setIsRetrying(false);
+  }, []);
+
   return {
     events,
     progress,
     isConnected,
     isConnecting,
     isReconnecting,
+    analysisError,
+    canRetry,
+    isRetrying,
     sendMessage,
     disconnect,
+    clearError,
   };
 }
 

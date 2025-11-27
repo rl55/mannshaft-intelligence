@@ -13,7 +13,7 @@ This agent provides:
 
 from typing import Dict, Any, Optional, List
 from google.adk.agents.llm_agent import LlmAgent
-from google.adk.tools.function_tool import FunctionTool
+from google.adk.tools import FunctionTool
 from utils.config import config
 from utils.logger import logger
 
@@ -105,7 +105,8 @@ def create_evaluation_agent() -> LlmAgent:
         Configured LlmAgent instance ready for use in agent registry or as a tool
     """
     model_name = config.get('gemini.model', 'gemini-2.5-flash-lite')
-    
+    model_config = config.get_model_config_with_retries()
+
     instruction = """You are an Evaluation Agent specializing in comprehensive quality control and meta-evaluation of synthesized business intelligence reports.
 
 **CORE RESPONSIBILITIES:**
@@ -210,6 +211,7 @@ Return a structured JSON object with the following schema:
         model=model_name,
         instruction=instruction,
         tools=[evaluation_tool],
+        **model_config  # Include HTTP retry options for transient errors (503, 429, etc.)
     )
     
     logger.info("ADK Evaluation Agent created with full feature set")

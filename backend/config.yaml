@@ -26,10 +26,24 @@ database:
 # Google Gemini Configuration
 gemini:
   api_key: "${GEMINI_API_KEY}"  # Load from environment variable
-  model: "gemini-2.5-flash-lite"  # Using gemini-2.5-flash-lite (free tier: free of charge, will fallback to gemini-2.0-flash-lite or gemini-1.5-flash if unavailable)
+  # Model options for v1beta API (ADK uses v1beta):
+  # Available models (as of Nov 2025):
+  # - gemini-2.5-flash: Latest flash with implicit caching (may be overloaded)
+  # - gemini-2.5-flash-lite: Lightweight 2.5 (may be overloaded)
+  # - gemini-2.0-flash: Stable flash model (may be overloaded)
+  # - gemini-2.0-flash-lite: Lightweight, stable, fast
+  # - gemini-flash-latest: Alias for latest flash
+  # NOTE: gemini-1.5-flash is NOT available in v1beta API!
+  model: "gemini-2.0-flash-lite"  # Using lightweight model for stability and speed
   temperature: 0.7
   max_tokens: 2048
-  timeout: 30
+  timeout: 60  # Increased timeout for better reliability
+  max_retries: 3  # ADK retry configuration: Reduced retries since model is more stable
+
+# Evaluation Configuration
+evaluation:
+  quality_threshold: 0.75  # Quality score threshold for passing evaluation (0-1)
+  max_regeneration_iterations: 3  # Maximum number of regeneration attempts
 
 # Google Sheets Configuration (MCP Integration)
 google_sheets:

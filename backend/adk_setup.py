@@ -13,8 +13,34 @@ from google.adk.sessions import (
     DatabaseSessionService,
     InMemorySessionService,
 )
+from google.adk.plugins import ReflectAndRetryToolPlugin
 from utils.config import config
 from utils.logger import logger
+
+
+def _configure_adk_retries():
+    """
+    Configure ADK retry mechanism via environment variables.
+    
+    ADK supports retry configuration through environment variables:
+    - AGENT_CLIENT_MAX_RETRIES: Maximum retry attempts (default: 3)
+    - AGENT_CLIENT_TIMEOUT: Request timeout duration (default: 30s)
+    
+    These are set from config.yaml or environment variables.
+    """
+    # Get retry configuration from config or use defaults
+    max_retries = config.get('gemini.max_retries', 3)
+    timeout_seconds = config.get('gemini.timeout', 30)
+    
+    # Set ADK environment variables if not already set
+    if 'AGENT_CLIENT_MAX_RETRIES' not in os.environ:
+        os.environ['AGENT_CLIENT_MAX_RETRIES'] = str(max_retries)
+        logger.info(f"ADK retry configured: AGENT_CLIENT_MAX_RETRIES={max_retries}")
+    
+    if 'AGENT_CLIENT_TIMEOUT' not in os.environ:
+        # ADK expects timeout in format like "30s"
+        os.environ['AGENT_CLIENT_TIMEOUT'] = f"{timeout_seconds}s"
+        logger.info(f"ADK timeout configured: AGENT_CLIENT_TIMEOUT={timeout_seconds}s")
 
 
 def get_session_service() -> BaseSessionService:
@@ -24,6 +50,9 @@ def get_session_service() -> BaseSessionService:
     Uses DatabaseSessionService for production (SQLite sync),
     falls back to InMemorySessionService for development.
     """
+    # Configure ADK retries before initializing services
+    _configure_adk_retries()
+    
     db_path = config.get('database.path', 'data/agent_cache.db')
     
     # Ensure database directory exists
@@ -68,6 +97,9 @@ def get_runner(
             session_id="session-123"
         )
     """
+    # Configure ADK retries before creating Runner
+    _configure_adk_retries()
+    
     if session_service is None:
         session_service = get_session_service()
     
@@ -77,11 +109,23 @@ def get_runner(
     
     # Create Runner with App
     # When app is provided, app_name should NOT be provided (ADK requirement)
+    # However, ADK Runner infers app_name from agent module path
+    # SequentialAgent is loaded from site-packages/google/adk/agents, so app_name is "agents"
+    # We must ensure the App's name matches the inferred app_name, or create sessions with inferred app_name
+    
+    # NOTE: Plugins must be configured in the App, not in the Runner when app is provided
+    # Plugins are already configured in adk_app.py (ReflectAndRetryToolPlugin)
+    
     runner = Runner(
         session_service=session_service,
-        app=app  # Only provide app, not app_name
+        app=app  # Only provide app, not app_name or plugins (plugins are in app)
     )
     
-    logger.info(f"ADK Runner initialized with app: {app.name}")
+    # Log plugins from app (if available)
+    plugin_names = []
+    if hasattr(app, 'plugins') and app.plugins:
+        plugin_names = [p.__class__.__name__ for p in app.plugins]
+    
+    logger.info(f"ADK Runner initialized with app: {app.name}" + (f" and plugins: {plugin_names}" if plugin_names else ""))
     return runner
 

@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback, useRef } from "react"
 import { AgentCard } from "@/components/analysis/agent-card"
 import { ProgressDisplay } from "@/components/analysis/progress-display"
-import type { AgentData, SessionStatus } from "@/components/analysis/types"
+import type { AgentData, SessionStatus, LogEntry } from "@/components/analysis/types"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { BarChart3, RefreshCw, DollarSign, Users, HeadphonesIcon, X, Shield, AlertCircle, Network, CheckCircle, Activity } from "lucide-react"
@@ -46,17 +46,17 @@ const INITIAL_AGENTS: AgentData[] = [
     confidence: 0,
   },
   {
-    id: "governance",
-    name: "Governance Agent",
-    role: "Safety & Compliance",
+    id: "evaluation",
+    name: "Evaluation Agent",
+    role: "Quality Assurance",
     status: "idle",
     logs: [],
     confidence: 0,
   },
   {
-    id: "evaluation",
-    name: "Evaluation Agent",
-    role: "Quality Assurance",
+    id: "governance",
+    name: "Governance Agent",
+    role: "Safety & Compliance",
     status: "idle",
     logs: [],
     confidence: 0,
@@ -76,6 +76,14 @@ interface EnhancedAnalysisViewProps {
   sessionId: string
   weekId: string
   onClose: () => void
+}
+
+// Helper to create a log entry with the event timestamp or current time
+function createLogEntry(message: string, eventTimestamp?: string): LogEntry {
+  return {
+    message,
+    timestamp: eventTimestamp || new Date().toISOString(),
+  }
 }
 
 export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAnalysisViewProps) {
@@ -104,7 +112,17 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
   const { getAnalysisStatus, getAnalysisResult } = useAnalysisStore()
   
   // Use WebSocket hook for real-time updates
-  const { events, progress, isConnected, isConnecting, isReconnecting } = useAnalysisProgress(
+  const { 
+    events, 
+    progress, 
+    isConnected, 
+    isConnecting, 
+    isReconnecting,
+    analysisError,
+    canRetry,
+    isRetrying,
+    clearError 
+  } = useAnalysisProgress(
     sessionId,
     {
       waitForSession: false, // Connect immediately
@@ -125,6 +143,13 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
         toast({
           title: "Connection Error",
           description: error.message,
+          variant: "destructive",
+        })
+      },
+      onAnalysisFailed: (message, canRetryFlag) => {
+        toast({
+          title: "Analysis Failed",
+          description: message,
           variant: "destructive",
         })
       },
@@ -177,18 +202,25 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
       finalProgress = 100;
     }
     
+    // Determine status based on error state, retry state, and progress
+    let sessionStatus: SessionStatus["status"] = "processing";
+    if (analysisError && !isRetrying) {
+      sessionStatus = "failed";
+    } else if (isRetrying) {
+      sessionStatus = "processing"; // Still processing during retry
+    } else if (finalProgress >= 100 || allAgentsCompleted) {
+      sessionStatus = "completed";
+    } else if (isConnecting) {
+      sessionStatus = "initializing";
+    } else if (isConnected) {
+      sessionStatus = "processing";
+    }
+    
     setSession((prev) => ({
       ...prev,
-      progress: finalProgress,
-      status: finalProgress >= 100 || allAgentsCompleted 
-        ? "completed" 
-        : isConnecting 
-          ? "initializing" 
-          : isConnected 
-            ? "processing" 
-            : prev.status === "initializing" 
-              ? "initializing" 
-              : "processing",
+      progress: analysisError && !isRetrying ? 0 : finalProgress,
+      status: sessionStatus,
+      error: analysisError || undefined,
     }))
   }, [progress, agents, isConnecting, isConnected])
 
@@ -235,7 +267,8 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
     
     sortedEvents.forEach((event) => {
       // Update status based on event type (use latest event for status)
-      if (event.type === "completed" || event.progress >= 100) {
+      // Only treat as session completion if type is explicitly 'completed' or 'progress_update' with 100%
+      if (event.type === "completed" || (event.type === "progress_update" && event.progress >= 100)) {
         sessionUpdates.status = "completed"
         sessionUpdates.progress = 100
       } else if (event.type === "error") {
@@ -244,7 +277,8 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
         if (!sessionUpdates.status || sessionUpdates.status === "initializing") {
           sessionUpdates.status = "processing"
         }
-        if (event.progress !== undefined) {
+        // Only update session progress from progress_update events
+        if (event.type === "progress_update" && event.progress !== undefined) {
           sessionUpdates.progress = event.progress
         }
       }
@@ -258,9 +292,17 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
         }
         const agentUpdate = agentUpdates.get(agentId)!
 
+        // Get event timestamp (from event or current time)
+        const eventTimestamp = event.timestamp || new Date().toISOString()
+        
         if (event.type === "agent_started") {
           console.log(`Setting agent ${agentId} to running`)
           agentUpdate.status = "running"
+          // Add "Processing" log when agent starts
+          if (!agentUpdate.logs) {
+            agentUpdate.logs = []
+          }
+          agentUpdate.logs.push(createLogEntry("Processing", eventTimestamp))
         } else if (event.type === "agent_completed") {
           const confidence = event.data?.confidence || event.data?.confidence_score || 0
           console.log(`Setting agent ${agentId} to completed with confidence ${confidence}`)
@@ -274,7 +316,7 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
           
           // Add main completion message
           if (event.message) {
-            agentUpdate.logs.push(`> ${event.message}`)
+            agentUpdate.logs.push(createLogEntry(event.message, eventTimestamp))
           }
           
           // Add metrics summary if available
@@ -282,35 +324,37 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
             const metricsStr = Object.entries(event.data.metrics)
               .map(([key, value]) => `${key}: ${value}`)
               .join(", ")
-            agentUpdate.logs.push(`> Metrics: ${metricsStr}`)
+            agentUpdate.logs.push(createLogEntry(`Metrics: ${metricsStr}`, eventTimestamp))
           }
           
           // Add key insights if available
           if (event.data?.key_insights && Array.isArray(event.data.key_insights) && event.data.key_insights.length > 0) {
-            agentUpdate.logs.push(`> Key Insights:`)
+            agentUpdate.logs.push(createLogEntry("Key Insights:", eventTimestamp))
             event.data.key_insights.slice(0, 3).forEach((insight: string) => {
-              agentUpdate.logs.push(`>   • ${insight}`)
+              agentUpdate.logs.push(createLogEntry(`  • ${insight}`, eventTimestamp))
             })
           }
           
           // Add cache status if available
           if (event.data?.cached !== undefined) {
-            agentUpdate.logs.push(`> Cache: ${event.data.cached ? "Hit" : "Miss"}`)
+            agentUpdate.logs.push(createLogEntry(`Cache: ${event.data.cached ? "Hit" : "Miss"}`, eventTimestamp))
           }
           
           // Add execution time if available
           if (event.data?.execution_time_ms) {
-            agentUpdate.logs.push(`> Execution Time: ${(event.data.execution_time_ms / 1000).toFixed(2)}s`)
+            agentUpdate.logs.push(createLogEntry(`Execution Time: ${(event.data.execution_time_ms / 1000).toFixed(2)}s`, eventTimestamp))
           }
         } else {
-          // Add log entry for other event types
+          // Add log entry for other event types (agent_progress, etc.)
           if (event.message) {
             if (!agentUpdate.logs) {
               agentUpdate.logs = []
             }
-            const logEntry = `> ${event.message}`
-            if (!agentUpdate.logs.includes(logEntry)) {
-              agentUpdate.logs.push(logEntry)
+            const newLog = createLogEntry(event.message, eventTimestamp)
+            // Avoid duplicate messages
+            const isDuplicate = agentUpdate.logs.some(log => log.message === newLog.message)
+            if (!isDuplicate) {
+              agentUpdate.logs.push(newLog)
             }
           }
         }
@@ -335,9 +379,10 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
           const update = agentUpdates.get(agent.id)
           if (!update) return agent
           
-          // Merge logs correctly - combine existing logs with new logs, avoiding duplicates
+          // Merge logs correctly - combine existing logs with new logs, avoiding duplicates by message
+          const existingMessages = new Set(agent.logs.map(log => log.message))
           const mergedLogs = update.logs 
-            ? [...agent.logs, ...update.logs.filter(log => !agent.logs.includes(log))]
+            ? [...agent.logs, ...update.logs.filter(log => !existingMessages.has(log.message))]
             : agent.logs
           
           const updatedAgent = {
@@ -433,9 +478,19 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
             </CardTitle>
             <CardDescription>
               Multi-agent intelligence grid processing data
-              {session.status === "completed" ? (
+              {session.status === "failed" ? (
+                <span className="ml-2 text-red-600 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  Failed
+                </span>
+              ) : session.status === "completed" ? (
                 <span className="ml-2 text-green-600 flex items-center gap-1">
                   ✓ Completed
+                </span>
+              ) : isRetrying ? (
+                <span className="ml-2 text-yellow-600 flex items-center gap-1">
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  Retrying...
                 </span>
               ) : isConnecting ? (
                 <span className="ml-2 text-primary flex items-center gap-1">
@@ -453,10 +508,10 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            {session.status === "completed" && (
+            {(session.status === "completed" || (session.status === "failed" && canRetry)) && (
               <Button variant="outline" size="sm" onClick={handleRerun}>
                 <RefreshCw className="mr-2 h-4 w-4" />
-                Rerun
+                {session.status === "failed" ? "Retry" : "Rerun"}
               </Button>
             )}
             <Button variant="ghost" size="icon" onClick={onClose}>
@@ -466,6 +521,51 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Error Banner */}
+        {analysisError && !isRetrying && (
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-red-600 dark:text-red-400 mt-0.5" />
+              <div className="flex-1">
+                <h4 className="text-sm font-medium text-red-800 dark:text-red-200">
+                  Analysis Failed
+                </h4>
+                <p className="text-sm text-red-700 dark:text-red-300 mt-1">
+                  {analysisError}
+                </p>
+                {canRetry && (
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="mt-3 border-red-300 text-red-700 hover:bg-red-100 dark:border-red-700 dark:text-red-300 dark:hover:bg-red-900"
+                    onClick={handleRerun}
+                  >
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    Try Again
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Retry Banner */}
+        {isRetrying && analysisError && (
+          <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4 dark:border-yellow-800 dark:bg-yellow-950">
+            <div className="flex items-center gap-3">
+              <RefreshCw className="h-5 w-5 text-yellow-600 dark:text-yellow-400 animate-spin" />
+              <div>
+                <h4 className="text-sm font-medium text-yellow-800 dark:text-yellow-200">
+                  Retrying...
+                </h4>
+                <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                  {analysisError}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <ProgressDisplay session={session} />
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">

@@ -52,11 +52,10 @@ async def fetch_revenue_data_from_sheets(
     try:
         client = _get_sheets_client()
         
-        # Use existing async method
+        # GoogleSheetsIntegration.read_revenue_data only accepts week_number
+        # spreadsheet_id and revenue_ranges are configured in the client instance
         revenue_data: RevenueData = await client.read_revenue_data(
-            week_number=week_number,
-            spreadsheet_id=spreadsheet_id,
-            revenue_ranges=revenue_ranges
+            week_number=week_number
         )
         
         # Convert to dictionary format
@@ -107,11 +106,10 @@ async def fetch_product_data_from_sheets(
     try:
         client = _get_sheets_client()
         
-        # Use existing async method
+        # GoogleSheetsIntegration.read_product_data only accepts week_number
+        # spreadsheet_id and product_ranges are configured in the client instance
         product_data: ProductData = await client.read_product_data(
-            week_number=week_number,
-            spreadsheet_id=spreadsheet_id,
-            product_ranges=product_ranges
+            week_number=week_number
         )
         
         # Convert to dictionary format
@@ -162,11 +160,10 @@ async def fetch_support_data_from_sheets(
     try:
         client = _get_sheets_client()
         
-        # Use existing async method
+        # GoogleSheetsIntegration.read_support_data only accepts week_number
+        # spreadsheet_id and support_ranges are configured in the client instance
         support_data: SupportData = await client.read_support_data(
-            week_number=week_number,
-            spreadsheet_id=spreadsheet_id,
-            support_ranges=support_ranges
+            week_number=week_number
         )
         
         # Convert to dictionary format

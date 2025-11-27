@@ -141,7 +141,8 @@ def create_revenue_agent() -> LlmAgent:
         Configured LlmAgent instance ready for use in agent registry or as a tool
     """
     model_name = config.get('gemini.model', 'gemini-2.5-flash-lite')
-    
+    model_config = config.get_model_config_with_retries()
+
     instruction = """You are a Revenue Analysis Agent specializing in comprehensive SaaS business revenue metrics.
 
 **CORE RESPONSIBILITIES:**
@@ -298,6 +299,7 @@ Return a structured JSON object with the following schema:
         model=model_name,
         instruction=instruction,
         tools=[revenue_data_tool, statistical_analysis_tool],
+        **model_config  # Include HTTP retry options for transient errors (503, 429, etc.)
         # ADK handles:
         # - Caching via context caching (prompt-level and context-level)
         # - Session management via SessionService
