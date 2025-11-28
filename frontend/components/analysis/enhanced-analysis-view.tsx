@@ -87,29 +87,19 @@ function createLogEntry(message: string, eventTimestamp?: string): LogEntry {
 }
 
 export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAnalysisViewProps) {
-  // Show loading state if sessionId is not yet available
-  if (!sessionId) {
-    return (
-      <Card className="border-primary/20 shadow-lg">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="h-5 w-5 text-primary" />
-            Week {weekId} Analysis
-          </CardTitle>
-          <CardDescription>Initializing analysis session...</CardDescription>
-        </CardHeader>
-        <CardContent className="flex items-center justify-center p-12">
-          <div className="text-center space-y-4">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
-            <p className="text-muted-foreground">Starting analysis for Week {weekId}...</p>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+  // All hooks must be called before any conditional returns
   const [agents, setAgents] = useState<AgentData[]>(INITIAL_AGENTS)
   const { toast } = useToast()
   const { getAnalysisStatus, getAnalysisResult } = useAnalysisStore()
+  
+  // Initialize session status with optimistic "connecting" state
+  const [session, setSession] = useState<SessionStatus>({
+    id: sessionId || "",
+    week: weekId,
+    progress: 0,
+    timeRemaining: 12,
+    status: "initializing", // Will update to "processing" when connected
+  })
   
   // Use WebSocket hook for real-time updates
   const { 
@@ -123,12 +113,13 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
     isRetrying,
     clearError 
   } = useAnalysisProgress(
-    sessionId,
+    sessionId || "",
     {
       waitForSession: false, // Connect immediately
       initialDelay: 100, // Minimal delay
       onComplete: async () => {
         // Fetch final result when analysis completes
+        if (!sessionId) return
         try {
           await getAnalysisResult(sessionId)
           toast({
@@ -156,8 +147,13 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
     }
   )
   
+  // Track which events have been processed to avoid reprocessing
+  const processedEventsRef = useRef<Set<string>>(new Set())
+  
   // Fetch initial status immediately when component mounts
   useEffect(() => {
+    if (!sessionId) return
+    
     const fetchInitialStatus = async () => {
       try {
         const status = await getAnalysisStatus(sessionId)
@@ -178,17 +174,10 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
     fetchInitialStatus()
   }, [sessionId, getAnalysisStatus])
 
-  // Initialize session status with optimistic "connecting" state
-  const [session, setSession] = useState<SessionStatus>({
-    id: sessionId,
-    week: weekId,
-    progress: 0,
-    timeRemaining: 12,
-    status: "initializing", // Will update to "processing" when connected
-  })
-
   // Update session from WebSocket events and progress
   useEffect(() => {
+    if (!sessionId) return
+    
     // Check if all agents are completed
     const allAgentsCompleted = agents.every(agent => agent.status === "completed");
     
@@ -222,10 +211,7 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
       status: sessionStatus,
       error: analysisError || undefined,
     }))
-  }, [progress, agents, isConnecting, isConnected])
-
-  // Track which events have been processed to avoid reprocessing
-  const processedEventsRef = useRef<Set<string>>(new Set())
+  }, [sessionId, progress, agents, isConnecting, isConnected, analysisError, isRetrying])
   
   // Update session from WebSocket events for agent-specific updates
   // Process events IMMEDIATELY as they arrive - no fake delays!
@@ -459,13 +445,34 @@ export function EnhancedAnalysisView({ sessionId, weekId, onClose }: EnhancedAna
   const handleRerun = useCallback(() => {
     setAgents(INITIAL_AGENTS)
     setSession({
-      id: sessionId,
+      id: sessionId || "",
       week: weekId,
       progress: 0,
       timeRemaining: 12,
       status: "initializing",
     })
   }, [sessionId, weekId])
+
+  // Show loading state if sessionId is not yet available (after all hooks)
+  if (!sessionId) {
+    return (
+      <Card className="border-primary/20 shadow-lg">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5 text-primary" />
+            Week {weekId} Analysis
+          </CardTitle>
+          <CardDescription>Initializing analysis session...</CardDescription>
+        </CardHeader>
+        <CardContent className="flex items-center justify-center p-12">
+          <div className="text-center space-y-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
+            <p className="text-muted-foreground">Starting analysis for Week {weekId}...</p>
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
 
   return (
     <Card className="border-primary/20 shadow-lg">
